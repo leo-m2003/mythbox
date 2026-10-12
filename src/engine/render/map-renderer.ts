@@ -1,5 +1,6 @@
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
+import type { TileRect } from '../world/brushes';
 
 /**
  * Dessine la carte dans un petit canvas caché (1 pixel = 1 tuile),
@@ -29,6 +30,31 @@ export class MapRenderer {
       }
     }
     this.bufferCtx.putImageData(this.image, 0, 0);
+  }
+
+  /** Recalcule seulement les tuiles d'une zone (après un coup de pinceau) */
+  redrawRect(rect: TileRect): void {
+    // L'ombrage d'une tuile dépend de sa voisine au nord-ouest :
+    // on redessine donc aussi une colonne à droite et une rangée en dessous.
+    const x1 = Math.min(this.world.width - 1, rect.x1 + 1);
+    const y1 = Math.min(this.world.height - 1, rect.y1 + 1);
+
+    for (let y = rect.y0; y <= y1; y++) {
+      for (let x = rect.x0; x <= x1; x++) {
+        this.writeTile(x, y);
+      }
+    }
+
+    // Copie uniquement la zone modifiée vers le canvas caché
+    this.bufferCtx.putImageData(
+      this.image,
+      0,
+      0,
+      rect.x0,
+      rect.y0,
+      x1 - rect.x0 + 1,
+      y1 - rect.y0 + 1,
+    );
   }
 
   /** Copie la carte sur le canvas visible, à la position et au zoom donnés */

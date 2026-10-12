@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { Engine } from '@engine/engine';
 import { GameService } from '../services/game-service';
+import { BrushKind } from '@engine/world/brushes';
 
 @Component({
   selector: 'app-game-canvas',
@@ -36,6 +37,7 @@ export class GameCanvas {
       observer.observe(canvas);
 
       engine.start();
+      engine.setBrush(BrushKind.Raise); // TEMPORAIRE : retiré à l'étape 3
       this.game.attach(engine);
 
       destroyRef.onDestroy(() => {
