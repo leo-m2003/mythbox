@@ -1,4 +1,6 @@
 import { Random } from './core/random';
+import { CameraControls } from './input/camera-controls';
+import { Camera } from './render/camera';
 import { MapRenderer } from './render/map-renderer';
 import { generateWorld } from './world/generator';
 import { World } from './world/world';
@@ -15,6 +17,8 @@ const BACKGROUND = '#12274a';
  */
 export class Engine {
   private readonly ctx: CanvasRenderingContext2D;
+  private readonly camera = new Camera(WORLD_WIDTH, WORLD_HEIGHT);
+  private readonly controls: CameraControls;
   private world!: World;
   private mapRenderer!: MapRenderer;
   private frameId = 0;
@@ -22,9 +26,10 @@ export class Engine {
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-      throw new Error("Ce navigateur ne permet pas de dessiner sur le canvas");
+      throw new Error('Ce navigateur ne permet pas de dessiner sur le canvas');
     }
     this.ctx = ctx;
+    this.controls = new CameraControls(canvas, this.camera);
     this.newWorld();
   }
 
@@ -36,12 +41,25 @@ export class Engine {
   newWorld(seed: number = Random.newSeed()): void {
     this.world = generateWorld({ width: WORLD_WIDTH, height: WORLD_HEIGHT, seed });
     this.mapRenderer = new MapRenderer(this.world);
+    this.resetView();
+  }
+
+  /** Recentre la vue sur le monde entier */
+  resetView(): void {
+    if (this.camera.hasViewport) {
+      this.camera.fitWorld();
+    }
   }
 
   /** À appeler quand la taille du canvas à l'écran change */
   resize(cssWidth: number, cssHeight: number, pixelRatio = 1): void {
+    const isFirstResize = !this.camera.hasViewport;
     this.canvas.width = Math.round(cssWidth * pixelRatio);
     this.canvas.height = Math.round(cssHeight * pixelRatio);
+    this.camera.setViewport(this.canvas.width, this.canvas.height);
+    if (isFirstResize) {
+      this.camera.fitWorld();
+    }
   }
 
   start(): void {
@@ -58,17 +76,20 @@ export class Engine {
     this.frameId = 0;
   }
 
+  /** Arrête le moteur et retire tous ses écouteurs d'événements */
+  destroy(): void {
+    this.stop();
+    this.controls.dispose();
+  }
+
   private render(): void {
-    const { ctx, canvas, world } = this;
+    const { ctx, canvas, camera } = this;
 
     ctx.fillStyle = BACKGROUND;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Temporaire : la carte entière, centrée. Remplacé par la caméra à l'étape 5.
-    const scale = Math.min(canvas.width / world.width, canvas.height / world.height);
-    const offsetX = (canvas.width - world.width * scale) / 2;
-    const offsetY = (canvas.height - world.height * scale) / 2;
-
-    this.mapRenderer.draw(ctx, offsetX, offsetY, scale);
+    // Position à l'écran du coin haut-gauche du monde
+    const origin = camera.worldToScreen(0, 0);
+    this.mapRenderer.draw(ctx, Math.round(origin.x), Math.round(origin.y), camera.zoom);
   }
 }

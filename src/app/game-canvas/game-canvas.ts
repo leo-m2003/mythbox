@@ -39,7 +39,7 @@ export class GameCanvas {
 
       destroyRef.onDestroy(() => {
         observer.disconnect();
-        engine.stop();
+        engine.destroy();
       });
     });
   }
