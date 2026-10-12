@@ -8,6 +8,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Engine } from '@engine/engine';
+import { GameService } from '../services/game-service';
 
 @Component({
   selector: 'app-game-canvas',
@@ -17,7 +18,7 @@ import { Engine } from '@engine/engine';
 })
 export class GameCanvas {
   private readonly canvasRef = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
-  private engine?: Engine;
+  private readonly game = inject(GameService);
 
   constructor() {
     const destroyRef = inject(DestroyRef);
@@ -26,7 +27,6 @@ export class GameCanvas {
     afterNextRender(() => {
       const canvas = this.canvasRef().nativeElement;
       const engine = new Engine(canvas);
-      this.engine = engine;
 
       // Adapte la résolution du canvas à sa taille réelle à l'écran
       const observer = new ResizeObserver(([entry]) => {
@@ -36,8 +36,10 @@ export class GameCanvas {
       observer.observe(canvas);
 
       engine.start();
+      this.game.attach(engine);
 
       destroyRef.onDestroy(() => {
+        this.game.detach();
         observer.disconnect();
         engine.destroy();
       });

@@ -1,0 +1,25 @@
+<div class="bar">
+  <h1 class="title">Mythobox</h1>
+
+  <button type="button" class="primary" (click)="newWorld()">Nouveau monde</button>
+
+  <form class="seed" (submit)="loadSeed($event, seedInput.value)">
+    <label for="seed-input">Graine</label>
+    <input
+      #seedInput
+      id="seed-input"
+      type="text"
+      autocomplete="off"
+      spellcheck="false"
+      [value]="game.seed() ?? ''"
+      [attr.aria-invalid]="seedError()"
+    />
+    <button type="submit">Charger</button>
+  </form>
+
+  <button type="button" (click)="game.resetView()">Recentrer</button>
+</div>
+
+@if (seedError()) {
+  <p class="error" role="alert">Saisis un nombre ou un mot pour générer un monde.</p>
+}

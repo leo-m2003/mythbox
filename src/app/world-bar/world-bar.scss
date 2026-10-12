@@ -1,0 +1,99 @@
+:host {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  // Laisse passer les clics vers la carte, sauf sur la barre elle-même
+  pointer-events: none;
+  font-family: system-ui, sans-serif;
+  color: #f3ead7;
+}
+
+.bar {
+  pointer-events: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  background: rgba(10, 20, 38, 0.82);
+  border: 1px solid rgba(214, 178, 94, 0.35);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+}
+
+.title {
+  margin: 0 8px 0 0;
+  font-family: 'Cinzel', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #e2bf6a;
+}
+
+.seed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+}
+
+input,
+button {
+  padding: 6px 10px;
+  font: inherit;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+}
+
+input {
+  width: 11ch;
+  font-variant-numeric: tabular-nums;
+}
+
+input[aria-invalid='true'] {
+  border-color: #e07a5f;
+}
+
+button {
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid #e2bf6a;
+  outline-offset: 2px;
+}
+
+.primary {
+  font-weight: 600;
+  color: #1a1408;
+  background: #c9a24a;
+  border-color: #c9a24a;
+
+  &:hover {
+    background: #ddb65c;
+  }
+}
+
+.error {
+  pointer-events: auto;
+  width: fit-content;
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  background: rgba(120, 30, 20, 0.85);
+  border-radius: 6px;
+}
