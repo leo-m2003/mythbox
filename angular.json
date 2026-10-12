@@ -6,7 +6,7 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "mythobox": {
+    "mythbox": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
@@ -59,10 +59,10 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "mythobox:build:production"
+              "buildTarget": "mythbox:build:production"
             },
             "development": {
-              "buildTarget": "mythobox:build:development"
+              "buildTarget": "mythbox:build:development"
             }
           },
           "defaultConfiguration": "development"
