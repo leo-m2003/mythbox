@@ -1,12 +1,9 @@
-import { Component, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
-
+import { Component } from '@angular/core';
+import { GameCanvas } from './game-canvas/game-canvas';
 @Component({
-  imports: [RouterOutlet],
+  imports: [GameCanvas],
   selector: 'app-root',
   styleUrl: './app.scss',
   templateUrl: './app.html',
 })
-export class App {
-  protected readonly title = signal('mythobox');
-}
+export class App {}
