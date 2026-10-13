@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { Engine, MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS } from '@engine/engine';
+import { Engine, MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS, type WorldSummary } from '@engine/engine';
 import type { SimSpeed } from '@engine/sim/sim-clock';
 import type { BrushKind } from '@engine/world/brushes';
 
@@ -31,6 +31,10 @@ export class GameService {
   /** Jour en cours dans le monde */
   readonly day = this.dayState.asReadonly();
 
+  private readonly populationState = signal(0);
+  /** Nombre d'habitants vivants */
+  readonly population = this.populationState.asReadonly();
+
   /** Vitesse à retrouver en sortant de la pause */
   private resumeSpeed: Exclude<SimSpeed, 0> = 1;
 
@@ -44,8 +48,8 @@ export class GameService {
     engine.setSpeed(this.speedState());
 
     // Le moteur envoie son résumé quelques fois par seconde
-    engine.onSummary = (summary) => this.dayState.set(summary.day);
-    this.dayState.set(engine.summary().day);
+    engine.onSummary = (summary) => this.applySummary(summary);
+    this.applySummary(engine.summary());
   }
 
   detach(): void {
@@ -91,5 +95,11 @@ export class GameService {
   /** Met en pause, ou reprend à la vitesse d'avant */
   togglePause(): void {
     this.setSpeed(this.speedState() === 0 ? this.resumeSpeed : 0);
+  }
+
+  /** Recopie le résumé du moteur dans les signals (un signal inchangé ne redessine rien) */
+  private applySummary(summary: WorldSummary): void {
+    this.dayState.set(summary.day);
+    this.populationState.set(summary.population);
   }
 }

@@ -2,7 +2,9 @@ import { Random } from './core/random';
 import { PointerInput } from './input/pointer-input';
 import { Camera, type Point } from './render/camera';
 import { MapRenderer } from './render/map-renderer';
+import { drawPeople } from './render/people-renderer';
 import { SimClock, TICKS_PER_DAY, type SimSpeed } from './sim/sim-clock';
+import { Simulation } from './sim/simulation';
 import { applyBrush, BrushKind } from './world/brushes';
 import { generateWorld } from './world/generator';
 import { World } from './world/world';
@@ -29,6 +31,8 @@ const SUMMARY_INTERVAL = 0.25;
 export interface WorldSummary {
   /** Jour en cours, à partir de 1 */
   day: number;
+  /** Nombre d'habitants vivants */
+  population: number;
 }
 
 /**
@@ -41,6 +45,7 @@ export class Engine {
   private readonly input: PointerInput;
   private world!: World;
   private mapRenderer!: MapRenderer;
+  private simulation!: Simulation;
   private frameId = 0;
   private lastFrameTime = 0;
 
@@ -72,6 +77,8 @@ export class Engine {
   newWorld(seed: number = Random.newSeed()): void {
     this.world = generateWorld({ width: WORLD_WIDTH, height: WORLD_HEIGHT, seed });
     this.mapRenderer = new MapRenderer(this.world);
+    this.simulation = new Simulation(this.world, seed);
+    this.simulation.spawnInitialGroup();
     this.clock.reset();
     this.resetView();
     this.emitSummary();
@@ -88,7 +95,10 @@ export class Engine {
 
   /** Résumé du monde à l'instant présent */
   summary(): WorldSummary {
-    return { day: Math.floor(this.clock.tick / TICKS_PER_DAY) + 1 };
+    return {
+      day: Math.floor(this.clock.tick / TICKS_PER_DAY) + 1,
+      population: this.simulation.people.count,
+    };
   }
 
   /** Recentre la vue sur le monde entier */
@@ -167,7 +177,7 @@ export class Engine {
 
   /** Un pas de simulation (1/10 de seconde à x1) */
   private simulateTick(): void {
-    // Vide pour l'instant : les habitants arrivent à l'étape suivante
+    this.simulation.tick();
   }
 
   private emitSummary(): void {
@@ -209,6 +219,7 @@ export class Engine {
     // Position à l'écran du coin haut-gauche du monde
     const origin = camera.worldToScreen(0, 0);
     this.mapRenderer.draw(ctx, Math.round(origin.x), Math.round(origin.y), camera.zoom);
+    drawPeople(ctx, this.simulation.people, Math.round(origin.x), Math.round(origin.y), camera.zoom);
 
     this.drawBrushPreview();
   }

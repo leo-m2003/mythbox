@@ -1,0 +1,51 @@
+/** Nombre maximal d'habitants dans un monde */
+export const MAX_PEOPLE = 4096;
+
+/**
+ * Les habitants, rangés « en colonnes » : un tableau typé par caractéristique.
+ * L'habitant n° i est à la position (x[i], y[i]) et marche vers (targetX[i], targetY[i]).
+ *
+ * Ce format est rapide à parcourir, ne crée aucun objet pendant la partie,
+ * et sera simple à sauvegarder ou à envoyer à un Web Worker.
+ * Les habitants vivants occupent toujours les cases 0 à count - 1.
+ */
+export class People {
+  /** Position, en tuiles (le centre de la tuile (3, 5) est en (3.5, 5.5)) */
+  readonly x = new Float32Array(MAX_PEOPLE);
+  readonly y = new Float32Array(MAX_PEOPLE);
+  /** Destination de la promenade en cours */
+  readonly targetX = new Float32Array(MAX_PEOPLE);
+  readonly targetY = new Float32Array(MAX_PEOPLE);
+  /** Nombre de pas de simulation à attendre avant de repartir */
+  readonly wait = new Uint8Array(MAX_PEOPLE);
+
+  /** Nombre d'habitants vivants */
+  count = 0;
+
+  /** Toutes les colonnes, pour les déplacer d'un coup dans remove() */
+  private readonly columns = [this.x, this.y, this.targetX, this.targetY, this.wait];
+
+  /** Ajoute un habitant au centre de la tuile (tileX, tileY). Renvoie son numéro, ou -1 si c'est complet */
+  add(tileX: number, tileY: number): number {
+    if (this.count >= MAX_PEOPLE) return -1;
+
+    const i = this.count++;
+    this.x[i] = this.targetX[i] = tileX + 0.5;
+    this.y[i] = this.targetY[i] = tileY + 0.5;
+    this.wait[i] = 0;
+    return i;
+  }
+
+  /**
+   * Retire l'habitant i. Le dernier habitant prend sa place,
+   * pour que les vivants restent groupés au début des tableaux.
+   * Attention : les numéros changent, il faut donc parcourir à l'envers si on retire en boucle.
+   */
+  remove(i: number): void {
+    const last = --this.count;
+    if (i === last) return;
+    for (const column of this.columns) {
+      column[i] = column[last];
+    }
+  }
+}
