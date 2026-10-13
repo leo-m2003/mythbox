@@ -18,12 +18,14 @@ export class People {
   readonly targetY = new Float32Array(MAX_PEOPLE);
   /** Nombre de pas de simulation à attendre avant de repartir */
   readonly wait = new Uint8Array(MAX_PEOPLE);
+  /** Faim, en pas de simulation depuis le dernier repas complet (0 = rassasié) */
+  readonly hunger = new Uint16Array(MAX_PEOPLE);
 
   /** Nombre d'habitants vivants */
   count = 0;
 
   /** Toutes les colonnes, pour les déplacer d'un coup dans remove() */
-  private readonly columns = [this.x, this.y, this.targetX, this.targetY, this.wait];
+  private readonly columns = [this.x, this.y, this.targetX, this.targetY, this.wait, this.hunger];
 
   /** Ajoute un habitant au centre de la tuile (tileX, tileY). Renvoie son numéro, ou -1 si c'est complet */
   add(tileX: number, tileY: number): number {
@@ -33,6 +35,7 @@ export class People {
     this.x[i] = this.targetX[i] = tileX + 0.5;
     this.y[i] = this.targetY[i] = tileY + 0.5;
     this.wait[i] = 0;
+    this.hunger[i] = 0;
     return i;
   }
 

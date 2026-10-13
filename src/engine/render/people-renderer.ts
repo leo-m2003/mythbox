@@ -1,7 +1,10 @@
 import type { People } from '../sim/people';
+import { HUNGRY_AT } from '../sim/simulation';
 
 /** Couleur des mortels : un blanc crème, visible sur l'herbe comme sur le sable */
 const PERSON_COLOR = '#fff4d6';
+/** Les affamés virent à l'orange : on voit d'un coup d'œil qu'ils cherchent à manger */
+const HUNGRY_COLOR = '#f08a3c';
 const OUTLINE_COLOR = 'rgba(0, 0, 0, 0.6)';
 
 /**
@@ -22,7 +25,7 @@ export function drawPeople(
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
 
-  // Deux passes (contour puis remplissage) : on ne change de couleur que deux fois
+  // Une passe par couleur (contour, rassasiés, affamés) : on ne change de couleur que trois fois
   ctx.fillStyle = OUTLINE_COLOR;
   for (let i = 0; i < people.count; i++) {
     const sx = Math.round(originX + people.x[i] * zoom - half);
@@ -31,11 +34,14 @@ export function drawPeople(
     ctx.fillRect(sx - 1, sy - 1, size + 2, size + 2);
   }
 
-  ctx.fillStyle = PERSON_COLOR;
-  for (let i = 0; i < people.count; i++) {
-    const sx = Math.round(originX + people.x[i] * zoom - half);
-    const sy = Math.round(originY + people.y[i] * zoom - half);
-    if (sx < -size || sy < -size || sx > width || sy > height) continue;
-    ctx.fillRect(sx, sy, size, size);
+  for (const hungry of [false, true]) {
+    ctx.fillStyle = hungry ? HUNGRY_COLOR : PERSON_COLOR;
+    for (let i = 0; i < people.count; i++) {
+      if (people.hunger[i] >= HUNGRY_AT !== hungry) continue;
+      const sx = Math.round(originX + people.x[i] * zoom - half);
+      const sy = Math.round(originY + people.y[i] * zoom - half);
+      if (sx < -size || sy < -size || sx > width || sy > height) continue;
+      ctx.fillRect(sx, sy, size, size);
+    }
   }
 }

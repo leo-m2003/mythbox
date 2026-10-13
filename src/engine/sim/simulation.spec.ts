@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { Terrain } from '../world/terrain';
 import { World } from '../world/world';
-import { INITIAL_PEOPLE, Simulation } from './simulation';
+import {
+  FOOD_REGROWTH,
+  HUNGRY_AT,
+  INITIAL_PEOPLE,
+  PORTION_VALUE,
+  Simulation,
+  STARVATION,
+} from './simulation';
 
 /** Un petit monde plat de prairie, traversé par une rivière verticale en x = 16 et 17 */
 function grassWorldWithRiver(): World {
@@ -11,6 +18,19 @@ function grassWorldWithRiver(): World {
   for (let y = 0; y < 32; y++) {
     world.elevation[world.index(16, y)] = 0.3;
     world.elevation[world.index(17, y)] = 0.3;
+  }
+  world.refreshAllTerrain();
+  return world;
+}
+
+/** Une île de sable plat (aucune nourriture), avec éventuellement une tuile de prairie */
+function sandWorld(grassX?: number, grassY?: number): World {
+  const world = new World(32, 32, 0, 0.38);
+  // 0,39 : juste au-dessus de la mer, donc plage
+  world.elevation.fill(0.39);
+  world.moisture.fill(0.3);
+  if (grassX !== undefined && grassY !== undefined) {
+    world.elevation[world.index(grassX, grassY)] = 0.5;
   }
   world.refreshAllTerrain();
   return world;
@@ -88,5 +108,84 @@ describe('Simulation', () => {
 
     expect(sim.people.count).toBe(1);
     expect(sim.people.x[0]).toBe(25.5);
+  });
+
+  it('remplit chaque tuile de nourriture selon son terrain', () => {
+    const world = sandWorld(10, 5);
+    const sim = new Simulation(world, 1);
+    expect(world.getTerrain(3, 3)).toBe(Terrain.Sand);
+    expect(sim.food[world.index(3, 3)]).toBe(0);
+    expect(world.getTerrain(10, 5)).toBe(Terrain.Grass);
+    expect(sim.food[world.index(10, 5)]).toBe(2);
+  });
+
+  it('meurt de faim au bout de STARVATION pas sans manger', () => {
+    const sim = new Simulation(sandWorld(), 1);
+    sim.people.add(5, 5);
+
+    for (let t = 0; t < STARVATION - 1; t++) {
+      sim.tick();
+    }
+    expect(sim.people.count).toBe(1);
+    expect(sim.people.hunger[0]).toBe(STARVATION - 1);
+
+    sim.tick();
+    expect(sim.people.count).toBe(0);
+  });
+
+  it('ne mange pas quand il n’a pas faim', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+    sim.people.add(5, 5);
+    sim.tick();
+    expect(sim.food[world.index(5, 5)]).toBe(2);
+    expect(sim.people.hunger[0]).toBe(1);
+  });
+
+  it('mange une portion sur sa tuile quand il a faim', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+    sim.people.add(5, 5);
+    sim.people.hunger[0] = HUNGRY_AT;
+
+    sim.tick();
+
+    // La faim monte d'abord à HUNGRY_AT + 1, puis le repas retire PORTION_VALUE
+    expect(sim.people.hunger[0]).toBe(HUNGRY_AT + 1 - PORTION_VALUE);
+    expect(sim.food[world.index(5, 5)]).toBe(1);
+  });
+
+  it('marche jusqu’à la nourriture la plus proche quand il a faim', () => {
+    const world = sandWorld(10, 5);
+    const sim = new Simulation(world, 1);
+    sim.people.add(5, 5);
+    sim.people.hunger[0] = HUNGRY_AT;
+
+    // 5 tuiles à 0,15 tuile par pas : environ 34 pas de marche, puis le repas
+    for (let t = 0; t < 60; t++) {
+      sim.tick();
+    }
+
+    // Une portion mangée (la tuile a un peu repoussé depuis le repas)
+    expect(sim.food[world.index(10, 5)]).toBeLessThan(1.5);
+    expect(sim.people.count).toBe(1);
+    expect(sim.people.hunger[0]).toBeLessThan(HUNGRY_AT);
+  });
+
+  it('fait repousser la nourriture sans dépasser la capacité du terrain', () => {
+    const world = sandWorld(10, 5);
+    const sim = new Simulation(world, 1);
+    const tile = world.index(10, 5);
+    sim.food[tile] = 0;
+
+    for (let t = 0; t < 1 / FOOD_REGROWTH; t++) {
+      sim.tick();
+    }
+    expect(sim.food[tile]).toBeCloseTo(1, 3);
+
+    for (let t = 0; t < 1000; t++) {
+      sim.tick();
+    }
+    expect(sim.food[tile]).toBe(2);
   });
 });
