@@ -1,0 +1,96 @@
+:host {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  // Laisse passer les clics vers la carte, sauf sur le panneau lui-même
+  pointer-events: none;
+  font-family: system-ui, sans-serif;
+  color: #f3ead7;
+}
+
+.panel {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(10, 20, 38, 0.82);
+  border: 1px solid rgba(214, 178, 94, 0.35);
+  border-radius: 12px;
+  backdrop-filter: blur(6px);
+}
+
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  &.active {
+    font-weight: 600;
+    color: #1a1408;
+    background: #c9a24a;
+    border-color: #c9a24a;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #e2bf6a;
+    outline-offset: 2px;
+  }
+}
+
+kbd {
+  min-width: 1.4em;
+  padding: 1px 5px;
+  font: 600 0.72rem/1.4 ui-monospace, monospace;
+  text-align: center;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.6;
+}
+
+.size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+
+  &.disabled {
+    opacity: 0.45;
+  }
+}
+
+label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.value {
+  display: inline-block;
+  min-width: 2ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type='range'] {
+  width: 110px;
+  accent-color: #c9a24a;
+}

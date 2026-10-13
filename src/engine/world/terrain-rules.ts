@@ -1,0 +1,22 @@
+import { Terrain } from './terrain';
+
+/** Humidité au-dessus de laquelle une prairie devient forêt */
+export const FOREST_MOISTURE = 0.55;
+
+/**
+ * Choisit le terrain d'une tuile à partir de son altitude et de son humidité.
+ * Utilisée par la génération ET par les pinceaux, pour rester cohérents.
+ */
+export function terrainFor(elevation: number, moisture: number, seaLevel: number): Terrain {
+  if (elevation < seaLevel - 0.1) return Terrain.DeepWater;
+  if (elevation < seaLevel) return Terrain.ShallowWater;
+
+  // Hauteur au-dessus de la mer, ramenée entre 0 (rivage) et 1 (plus haut sommet)
+  const h = (elevation - seaLevel) / (1 - seaLevel);
+
+  if (h < 0.04) return Terrain.Sand;
+  if (h < 0.3) return moisture > FOREST_MOISTURE ? Terrain.Forest : Terrain.Grass;
+  if (h < 0.42) return Terrain.Hills;
+  if (h < 0.55) return Terrain.Mountain;
+  return Terrain.Snow;
+}

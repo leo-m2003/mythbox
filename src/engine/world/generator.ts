@@ -1,6 +1,5 @@
 import { createNoise2D, type NoiseFunction2D } from 'simplex-noise';
 import { Random } from '../core/random';
-import { Terrain } from './terrain';
 import { World } from './world';
 
 export interface WorldGenOptions {
@@ -38,25 +37,10 @@ function fractalNoise(
   return value / maxValue;
 }
 
-/** Choisit le terrain d'une tuile à partir de son altitude et de son humidité */
-function terrainFor(elevation: number, moisture: number, seaLevel: number): Terrain {
-  if (elevation < seaLevel - 0.1) return Terrain.DeepWater;
-  if (elevation < seaLevel) return Terrain.ShallowWater;
-
-  // Hauteur au-dessus de la mer, ramenée entre 0 (rivage) et 1 (plus haut sommet)
-  const h = (elevation - seaLevel) / (1 - seaLevel);
-
-  if (h < 0.04) return Terrain.Sand;
-  if (h < 0.3) return moisture > 0.55 ? Terrain.Forest : Terrain.Grass;
-  if (h < 0.42) return Terrain.Hills;
-  if (h < 0.55) return Terrain.Mountain;
-  return Terrain.Snow;
-}
-
 export function generateWorld(options: WorldGenOptions): World {
   const { width, height, seed, scale = 0.012, seaLevel = 0.38 } = options;
 
-  const world = new World(width, height, seed);
+  const world = new World(width, height, seed, seaLevel);
   const rng = new Random(seed);
 
   // Deux bruits indépendants, tous deux dérivés de la graine
@@ -80,7 +64,8 @@ export function generateWorld(options: WorldGenOptions): World {
 
       const i = world.index(x, y);
       world.elevation[i] = elevation;
-      world.terrain[i] = terrainFor(elevation, moisture, seaLevel);
+      world.moisture[i] = moisture;
+      world.refreshTerrain(i);
     }
   }
 

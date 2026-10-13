@@ -1,7 +1,8 @@
 import { Random } from './core/random';
-import { CameraControls } from './input/camera-controls';
-import { Camera } from './render/camera';
+import { PointerInput } from './input/pointer-input';
+import { Camera, type Point } from './render/camera';
 import { MapRenderer } from './render/map-renderer';
+import { applyBrush, BrushKind } from './world/brushes';
 import { generateWorld } from './world/generator';
 import { World } from './world/world';
 
@@ -11,6 +12,15 @@ const WORLD_HEIGHT = 192;
 /** Couleur de fond : l'océan profond, assombri */
 const BACKGROUND = '#12274a';
 
+export const MIN_BRUSH_RADIUS = 1;
+export const MAX_BRUSH_RADIUS = 12;
+
+/** Vitesse des pinceaux : variation d'altitude par seconde au centre du pinceau */
+const BRUSH_SPEED = 0.25;
+
+/** Durée maximale d'une image, en secondes (évite un énorme coup de pinceau après une pause) */
+const MAX_FRAME_TIME = 0.05;
+
 /**
  * Point d'entrée unique du moteur.
  * Angular ne parle qu'à cette classe, jamais directement au monde ou au rendu.
@@ -18,10 +28,15 @@ const BACKGROUND = '#12274a';
 export class Engine {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly camera = new Camera(WORLD_WIDTH, WORLD_HEIGHT);
-  private readonly controls: CameraControls;
+  private readonly input: PointerInput;
   private world!: World;
   private mapRenderer!: MapRenderer;
   private frameId = 0;
+  private lastFrameTime = 0;
+
+  /** Pinceau actif, ou null pour l'outil « main » */
+  private activeBrush: BrushKind | null = null;
+  private brushRadius = 4;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -29,7 +44,7 @@ export class Engine {
       throw new Error('Ce navigateur ne permet pas de dessiner sur le canvas');
     }
     this.ctx = ctx;
-    this.controls = new CameraControls(canvas, this.camera);
+    this.input = new PointerInput(canvas, this.camera);
     this.newWorld();
   }
 
@@ -51,6 +66,17 @@ export class Engine {
     }
   }
 
+  /** Choisit le pinceau actif, ou null pour l'outil « main » */
+  setBrush(kind: BrushKind | null): void {
+    this.activeBrush = kind;
+    this.input.setLeftButtonPans(kind === null);
+  }
+
+  /** Change le rayon du pinceau, en tuiles */
+  setBrushRadius(radius: number): void {
+    this.brushRadius = Math.min(MAX_BRUSH_RADIUS, Math.max(MIN_BRUSH_RADIUS, Math.round(radius)));
+  }
+
   /** À appeler quand la taille du canvas à l'écran change */
   resize(cssWidth: number, cssHeight: number, pixelRatio = 1): void {
     const isFirstResize = !this.camera.hasViewport;
@@ -64,7 +90,14 @@ export class Engine {
 
   start(): void {
     if (this.frameId) return;
-    const loop = () => {
+    const loop = (time: number) => {
+      // Temps écoulé depuis l'image précédente, en secondes
+      const dt = this.lastFrameTime
+        ? Math.min(MAX_FRAME_TIME, (time - this.lastFrameTime) / 1000)
+        : 0;
+      this.lastFrameTime = time;
+
+      this.update(dt);
       this.render();
       this.frameId = requestAnimationFrame(loop);
     };
@@ -74,12 +107,39 @@ export class Engine {
   stop(): void {
     cancelAnimationFrame(this.frameId);
     this.frameId = 0;
+    this.lastFrameTime = 0;
   }
 
   /** Arrête le moteur et retire tous ses écouteurs d'événements */
   destroy(): void {
     this.stop();
-    this.controls.dispose();
+    this.input.dispose();
+  }
+
+  /** Fait évoluer le monde (pour l'instant : applique le pinceau) */
+  private update(dt: number): void {
+    if (this.activeBrush === null || !this.input.painting) return;
+
+    const tile = this.hoveredTile();
+    if (!tile) return;
+
+    const changed = applyBrush(
+      this.world,
+      { kind: this.activeBrush, radius: this.brushRadius, strength: BRUSH_SPEED * dt },
+      tile.x,
+      tile.y,
+    );
+    if (changed) {
+      this.mapRenderer.redrawRect(changed);
+    }
+  }
+
+  /** Tuile située sous le pointeur, ou null */
+  private hoveredTile(): Point | null {
+    const hover = this.input.hover;
+    if (!hover) return null;
+    const world = this.camera.screenToWorld(hover.x, hover.y);
+    return { x: Math.floor(world.x), y: Math.floor(world.y) };
   }
 
   private render(): void {
@@ -91,5 +151,29 @@ export class Engine {
     // Position à l'écran du coin haut-gauche du monde
     const origin = camera.worldToScreen(0, 0);
     this.mapRenderer.draw(ctx, Math.round(origin.x), Math.round(origin.y), camera.zoom);
+
+    this.drawBrushPreview();
+  }
+
+  /** Cercle qui montre la zone que le pinceau va toucher */
+  private drawBrushPreview(): void {
+    if (this.activeBrush === null) return;
+    const tile = this.hoveredTile();
+    if (!tile) return;
+
+    const { ctx, camera } = this;
+    const center = camera.worldToScreen(tile.x + 0.5, tile.y + 0.5);
+    const radius = (this.brushRadius + 0.5) * camera.zoom;
+
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+
+    // Contour sombre puis clair : visible sur l'eau comme sur la neige
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.stroke();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.stroke();
   }
 }
