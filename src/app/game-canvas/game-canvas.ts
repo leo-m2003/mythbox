@@ -37,7 +37,6 @@ export class GameCanvas {
       observer.observe(canvas);
 
       engine.start();
-      engine.setBrush(BrushKind.Raise); // TEMPORAIRE : retiré à l'étape 3
       this.game.attach(engine);
 
       destroyRef.onDestroy(() => {
