@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS } from '@engine/engine';
 import { GameService } from '../services/game-service';
+import { isTyping } from '../shared/is-typing';
 import { TOOLS, type ToolDef } from './tools';
 
 @Component({
@@ -30,7 +31,7 @@ export class Toolbar {
   protected onKeydown(event: KeyboardEvent): void {
     // Laisse passer les raccourcis du navigateur (Ctrl+F, Ctrl+R…)
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (this.isTyping(event.target)) return;
+    if (isTyping(event.target)) return;
 
     if (event.key === 'Escape') {
       this.game.setTool(null);
@@ -53,12 +54,5 @@ export class Toolbar {
       this.game.setTool(tool.id);
       event.preventDefault();
     }
-  }
-
-  /** Vrai si le joueur est en train d'écrire dans un champ de texte */
-  private isTyping(target: EventTarget | null): boolean {
-    if (target instanceof HTMLTextAreaElement) return true;
-    if (target instanceof HTMLInputElement) return target.type !== 'range';
-    return target instanceof HTMLElement && target.isContentEditable;
   }
 }

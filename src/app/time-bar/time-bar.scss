@@ -1,0 +1,60 @@
+:host {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-family: system-ui, sans-serif;
+  color: #f3ead7;
+}
+
+.panel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(10, 20, 38, 0.82);
+  border: 1px solid rgba(214, 178, 94, 0.35);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+}
+
+.day {
+  margin-right: 6px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.value {
+  display: inline-block;
+  min-width: 4ch;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e2bf6a;
+  font-variant-numeric: tabular-nums;
+}
+
+button {
+  padding: 6px 10px;
+  font: inherit;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  &.active {
+    font-weight: 600;
+    color: #1a1408;
+    background: #c9a24a;
+    border-color: #c9a24a;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #e2bf6a;
+    outline-offset: 2px;
+  }
+}
