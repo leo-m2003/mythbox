@@ -9,7 +9,6 @@ import {
 } from '@angular/core';
 import { Engine } from '@engine/engine';
 import { GameService } from '../services/game-service';
-import { BrushKind } from '@engine/world/brushes';
 
 @Component({
   selector: 'app-game-canvas',
