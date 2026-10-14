@@ -20,15 +20,34 @@ export class People {
   readonly wait = new Uint8Array(MAX_PEOPLE);
   /** Faim, en pas de simulation depuis le dernier repas complet (0 = rassasié) */
   readonly hunger = new Uint16Array(MAX_PEOPLE);
+  /** Âge, en pas de simulation (120 pas = 1 an) */
+  readonly age = new Uint16Array(MAX_PEOPLE);
+  /** Âge auquel il mourra de vieillesse, en pas */
+  readonly lifespan = new Uint16Array(MAX_PEOPLE);
+  /** Pas à attendre avant de pouvoir avoir un nouvel enfant */
+  readonly birthCooldown = new Uint16Array(MAX_PEOPLE);
 
   /** Nombre d'habitants vivants */
   count = 0;
 
   /** Toutes les colonnes, pour les déplacer d'un coup dans remove() */
-  private readonly columns = [this.x, this.y, this.targetX, this.targetY, this.wait, this.hunger];
+  private readonly columns = [
+    this.x,
+    this.y,
+    this.targetX,
+    this.targetY,
+    this.wait,
+    this.hunger,
+    this.age,
+    this.lifespan,
+    this.birthCooldown,
+  ];
 
-  /** Ajoute un habitant au centre de la tuile (tileX, tileY). Renvoie son numéro, ou -1 si c'est complet */
-  add(tileX: number, tileY: number): number {
+  /**
+   * Ajoute un nouveau-né au centre de la tuile (tileX, tileY). Renvoie son numéro, ou -1 si c'est complet.
+   * Sans durée de vie précisée, il vit le maximum possible (65 535 pas, plus de 500 ans) : pratique pour les tests.
+   */
+  add(tileX: number, tileY: number, lifespan = 0xffff): number {
     if (this.count >= MAX_PEOPLE) return -1;
 
     const i = this.count++;
@@ -36,6 +55,9 @@ export class People {
     this.y[i] = this.targetY[i] = tileY + 0.5;
     this.wait[i] = 0;
     this.hunger[i] = 0;
+    this.age[i] = 0;
+    this.lifespan[i] = lifespan;
+    this.birthCooldown[i] = 0;
     return i;
   }
 

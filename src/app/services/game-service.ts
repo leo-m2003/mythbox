@@ -27,8 +27,12 @@ export class GameService {
   /** Vitesse de la simulation (0 = pause) */
   readonly speed = this.speedState.asReadonly();
 
+  private readonly yearState = signal(1);
+  /** Année en cours dans le monde */
+  readonly year = this.yearState.asReadonly();
+
   private readonly dayState = signal(1);
-  /** Jour en cours dans le monde */
+  /** Jour dans l'année en cours */
   readonly day = this.dayState.asReadonly();
 
   private readonly populationState = signal(0);
@@ -99,6 +103,7 @@ export class GameService {
 
   /** Recopie le résumé du moteur dans les signals (un signal inchangé ne redessine rien) */
   private applySummary(summary: WorldSummary): void {
+    this.yearState.set(summary.year);
     this.dayState.set(summary.day);
     this.populationState.set(summary.population);
   }

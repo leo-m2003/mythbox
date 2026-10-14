@@ -4,6 +4,12 @@ export const TICKS_PER_SECOND = 10;
 /** Nombre de pas de simulation dans une journée du jeu (une journée = 1 s à x1) */
 export const TICKS_PER_DAY = 10;
 
+/** Nombre de jours dans une année du jeu (une année = 12 s à x1) */
+export const DAYS_PER_YEAR = 12;
+
+/** Nombre de pas de simulation dans une année */
+export const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
+
 /** Vitesses possibles : 0 = pause */
 export const SIM_SPEEDS = [0, 1, 2, 5] as const;
 export type SimSpeed = (typeof SIM_SPEEDS)[number];

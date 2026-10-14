@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { Terrain } from '../world/terrain';
 import { World } from '../world/world';
+import { TICKS_PER_YEAR } from './sim-clock';
 import {
+  ADULT_AGE,
+  BIRTH_COOLDOWN,
+  BIRTH_HUNGER,
+  FERTILE_UNTIL,
   FOOD_REGROWTH,
   HUNGRY_AT,
   INITIAL_PEOPLE,
@@ -34,6 +39,13 @@ function sandWorld(grassX?: number, grassY?: number): World {
   }
   world.refreshAllTerrain();
   return world;
+}
+
+/** Ajoute un adulte de 20 ans, rassasié et quasi immortel, sur la tuile (x, y) */
+function addAdult(sim: Simulation, x: number, y: number): number {
+  const i = sim.people.add(x, y);
+  sim.people.age[i] = 20 * TICKS_PER_YEAR;
+  return i;
 }
 
 /** Vrai si tous les habitants sont sur une tuile praticable */
@@ -77,7 +89,8 @@ describe('Simulation', () => {
       expect(allOnLand(sim)).toBe(true);
     }
 
-    expect(sim.people.count).toBe(INITIAL_PEOPLE);
+    // Des enfants ont pu naître entre-temps : ils sont ajoutés à la fin, les premiers numéros ne bougent pas
+    expect(sim.people.count).toBeGreaterThanOrEqual(INITIAL_PEOPLE);
     const moved = startX.some((x, i) => x !== sim.people.x[i]);
     expect(moved).toBe(true);
   });
@@ -183,9 +196,79 @@ describe('Simulation', () => {
     }
     expect(sim.food[tile]).toBeCloseTo(1, 3);
 
-    for (let t = 0; t < 1000; t++) {
+    for (let t = 0; t < 2 / FOOD_REGROWTH; t++) {
       sim.tick();
     }
     expect(sim.food[tile]).toBe(2);
+  });
+
+  it('fait apparaître un groupe d’adultes de 16 à 30 ans', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 42);
+    sim.spawnInitialGroup();
+    for (let i = 0; i < sim.people.count; i++) {
+      expect(sim.people.age[i]).toBeGreaterThanOrEqual(ADULT_AGE);
+      expect(sim.people.age[i]).toBeLessThanOrEqual(30 * TICKS_PER_YEAR);
+      expect(sim.isFertile(i)).toBe(true);
+    }
+  });
+
+  it('vieillit d’un pas à chaque pas et meurt de vieillesse', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    sim.people.add(5, 5, 10);
+
+    for (let t = 0; t < 9; t++) {
+      sim.tick();
+    }
+    expect(sim.people.count).toBe(1);
+    expect(sim.people.age[0]).toBe(9);
+
+    sim.tick();
+    expect(sim.people.count).toBe(0);
+  });
+
+  it('fait naître un enfant quand deux adultes rassasiés sont proches', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    addAdult(sim, 5, 5);
+    addAdult(sim, 6, 5);
+
+    // Chacun a 1 chance sur 120 par pas : en 1000 pas, une naissance est quasi certaine
+    let t = 0;
+    while (sim.people.count === 2 && t < 1000) {
+      sim.tick();
+      t++;
+    }
+
+    expect(sim.people.count).toBe(3);
+    // Le nouveau-né est le dernier, il n'a pas encore vieilli
+    expect(sim.people.age[2]).toBe(0);
+    expect(sim.people.hunger[2]).toBe(0);
+    // Le parent attend avant le prochain enfant, et a un peu plus faim
+    const parent = sim.people.birthCooldown[0] > 0 ? 0 : 1;
+    expect(sim.people.birthCooldown[parent]).toBe(BIRTH_COOLDOWN);
+    expect(sim.people.hunger[parent]).toBeGreaterThanOrEqual(BIRTH_HUNGER);
+  });
+
+  it('ne fait pas naître d’enfant à un adulte seul', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    addAdult(sim, 5, 5);
+    for (let t = 0; t < 1000; t++) {
+      sim.tick();
+    }
+    expect(sim.people.count).toBe(1);
+  });
+
+  it('ne fait pas naître d’enfant à des enfants ni à des personnes trop âgées', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    sim.people.add(5, 5);
+    sim.people.add(6, 5);
+    const elder = addAdult(sim, 25, 5);
+    const elder2 = addAdult(sim, 26, 5);
+    sim.people.age[elder] = FERTILE_UNTIL;
+    sim.people.age[elder2] = FERTILE_UNTIL;
+
+    for (let t = 0; t < 1000; t++) {
+      sim.tick();
+    }
+    expect(sim.people.count).toBe(4);
   });
 });

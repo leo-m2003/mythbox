@@ -2,6 +2,7 @@ import { Random } from '../core/random';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
 import { People } from './people';
+import { TICKS_PER_YEAR } from './sim-clock';
 
 /** Nombre d'habitants au début d'un monde */
 export const INITIAL_PEOPLE = 20;
@@ -24,8 +25,33 @@ export const STARVATION = 400;
 /** Faim effacée par une portion de nourriture */
 export const PORTION_VALUE = 200;
 
-/** Repousse de la nourriture, en portions par pas (une portion tous les 20 jours) */
-export const FOOD_REGROWTH = 1 / 200;
+/** Âge adulte : à partir de 16 ans, on peut avoir des enfants */
+export const ADULT_AGE = 16 * TICKS_PER_YEAR;
+
+/** Après 45 ans, plus d'enfants */
+export const FERTILE_UNTIL = 45 * TICKS_PER_YEAR;
+
+/** Durée de vie : entre 55 et 75 ans, tirée au hasard à la naissance */
+const MIN_LIFESPAN = 55 * TICKS_PER_YEAR;
+const MAX_LIFESPAN = 75 * TICKS_PER_YEAR;
+
+/** Chance d'avoir un enfant à chaque pas, quand toutes les conditions sont réunies (en moyenne 1 an d'attente) */
+const BIRTH_CHANCE = 1 / TICKS_PER_YEAR;
+
+/** Délai minimal entre deux enfants d'un même parent : 2 ans */
+export const BIRTH_COOLDOWN = 2 * TICKS_PER_YEAR;
+
+/** Un enfant fatigue : la faim du parent augmente d'autant */
+export const BIRTH_HUNGER = 100;
+
+/** Distance maximale entre les deux adultes, en tuiles */
+const PARTNER_DISTANCE = 2;
+
+/**
+ * Repousse de la nourriture, en portions par pas : une portion tous les 200 jours (environ 17 ans).
+ * C'est elle qui fixe combien d'habitants l'île peut nourrir (voir le guide de l'étape 4).
+ */
+export const FOOD_REGROWTH = 1 / 2000;
 
 /**
  * Nourriture maximale par type de terrain, rangée dans un petit tableau typé.
@@ -78,8 +104,10 @@ export class Simulation {
       const y = start.y + this.random.int(-3, 3);
       if (!this.isWalkable(x, y)) continue;
 
-      const i = this.people.add(x, y);
+      const i = this.people.add(x, y, this.randomLifespan());
       if (i < 0) break;
+      // Des adultes de 16 à 30 ans, pour que le groupe puisse s'agrandir
+      this.people.age[i] = this.random.int(ADULT_AGE, 30 * TICKS_PER_YEAR);
       // Faims différentes : ils n'iront pas tous manger au même moment
       this.people.hunger[i] = this.random.int(0, HUNGRY_AT - 1);
       added++;
@@ -113,10 +141,23 @@ export class Simulation {
         continue;
       }
 
+      people.age[i]++;
+      if (people.age[i] >= people.lifespan[i]) {
+        // Mort de vieillesse
+        people.remove(i);
+        continue;
+      }
+
       people.hunger[i]++;
       if (people.hunger[i] >= STARVATION) {
         people.remove(i);
         continue;
+      }
+
+      if (people.birthCooldown[i] > 0) {
+        people.birthCooldown[i]--;
+      } else {
+        this.tryBirth(i);
       }
 
       // Affamé sur une tuile qui a de quoi manger : il mange au lieu de marcher
@@ -126,6 +167,49 @@ export class Simulation {
 
       this.move(i);
     }
+  }
+
+  /** Vrai si l'habitant i est en âge d'avoir des enfants */
+  isFertile(i: number): boolean {
+    const age = this.people.age[i];
+    return age >= ADULT_AGE && age < FERTILE_UNTIL;
+  }
+
+  /**
+   * L'habitant i a peut-être un enfant : il faut qu'il soit en âge, rassasié,
+   * avec un autre adulte tout près, et un peu de chance.
+   * (Simplification : pas encore d'hommes et de femmes, ni de couples.)
+   */
+  private tryBirth(i: number): void {
+    const p = this.people;
+    if (!this.isFertile(i) || this.isHungry(i)) return;
+    // Le hasard d'abord : il évite de chercher un partenaire à chaque pas
+    if (!this.random.chance(BIRTH_CHANCE)) return;
+    if (!this.hasPartnerNear(i)) return;
+
+    const child = p.add(Math.floor(p.x[i]), Math.floor(p.y[i]), this.randomLifespan());
+    if (child < 0) return; // le monde est plein
+
+    p.birthCooldown[i] = BIRTH_COOLDOWN;
+    p.hunger[i] = Math.min(STARVATION - 1, p.hunger[i] + BIRTH_HUNGER);
+  }
+
+  /** Vrai si un autre adulte se trouve à moins de PARTNER_DISTANCE tuiles de l'habitant i */
+  private hasPartnerNear(i: number): boolean {
+    const p = this.people;
+    const maxSquared = PARTNER_DISTANCE * PARTNER_DISTANCE;
+    // Parcourt tout le monde : acceptable, car on ne le fait que rarement (après le tirage au sort)
+    for (let j = 0; j < p.count; j++) {
+      if (j === i || p.age[j] < ADULT_AGE) continue;
+      const dx = p.x[j] - p.x[i];
+      const dy = p.y[j] - p.y[i];
+      if (dx * dx + dy * dy <= maxSquared) return true;
+    }
+    return false;
+  }
+
+  private randomLifespan(): number {
+    return this.random.int(MIN_LIFESPAN, MAX_LIFESPAN);
   }
 
   /** Nourriture maximale de la tuile i, selon son terrain actuel */

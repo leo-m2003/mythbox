@@ -3,7 +3,7 @@ import { PointerInput } from './input/pointer-input';
 import { Camera, type Point } from './render/camera';
 import { MapRenderer } from './render/map-renderer';
 import { drawPeople } from './render/people-renderer';
-import { SimClock, TICKS_PER_DAY, type SimSpeed } from './sim/sim-clock';
+import { SimClock, TICKS_PER_DAY, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
 import { Simulation } from './sim/simulation';
 import { applyBrush, BrushKind } from './world/brushes';
 import { generateWorld } from './world/generator';
@@ -29,7 +29,9 @@ const SUMMARY_INTERVAL = 0.25;
 
 /** Petit résumé du monde, envoyé à l'interface quelques fois par seconde */
 export interface WorldSummary {
-  /** Jour en cours, à partir de 1 */
+  /** Année en cours, à partir de 1 */
+  year: number;
+  /** Jour dans l'année, de 1 à 12 */
   day: number;
   /** Nombre d'habitants vivants */
   population: number;
@@ -95,8 +97,10 @@ export class Engine {
 
   /** Résumé du monde à l'instant présent */
   summary(): WorldSummary {
+    const tick = this.clock.tick;
     return {
-      day: Math.floor(this.clock.tick / TICKS_PER_DAY) + 1,
+      year: Math.floor(tick / TICKS_PER_YEAR) + 1,
+      day: Math.floor((tick % TICKS_PER_YEAR) / TICKS_PER_DAY) + 1,
       population: this.simulation.people.count,
     };
   }
