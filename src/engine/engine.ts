@@ -3,6 +3,7 @@ import { PointerInput } from './input/pointer-input';
 import { Camera, type Point } from './render/camera';
 import { MapRenderer } from './render/map-renderer';
 import { drawPeople } from './render/people-renderer';
+import { drawVillages } from './render/village-renderer';
 import { SimClock, TICKS_PER_DAY, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
 import { Simulation } from './sim/simulation';
 import { applyBrush, BrushKind } from './world/brushes';
@@ -35,6 +36,8 @@ export interface WorldSummary {
   day: number;
   /** Nombre d'habitants vivants */
   population: number;
+  /** Nombre de villages */
+  villages: number;
 }
 
 /**
@@ -102,6 +105,7 @@ export class Engine {
       year: Math.floor(tick / TICKS_PER_YEAR) + 1,
       day: Math.floor((tick % TICKS_PER_YEAR) / TICKS_PER_DAY) + 1,
       population: this.simulation.people.count,
+      villages: this.simulation.villages.count,
     };
   }
 
@@ -222,8 +226,11 @@ export class Engine {
 
     // Position à l'écran du coin haut-gauche du monde
     const origin = camera.worldToScreen(0, 0);
-    this.mapRenderer.draw(ctx, Math.round(origin.x), Math.round(origin.y), camera.zoom);
-    drawPeople(ctx, this.simulation.people, Math.round(origin.x), Math.round(origin.y), camera.zoom);
+    const ox = Math.round(origin.x);
+    const oy = Math.round(origin.y);
+    this.mapRenderer.draw(ctx, ox, oy, camera.zoom);
+    drawVillages(ctx, this.simulation.villages, ox, oy, camera.zoom);
+    drawPeople(ctx, this.simulation.people, ox, oy, camera.zoom);
 
     this.drawBrushPreview();
   }

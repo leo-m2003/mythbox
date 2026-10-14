@@ -26,6 +26,8 @@ export class People {
   readonly lifespan = new Uint16Array(MAX_PEOPLE);
   /** Pas à attendre avant de pouvoir avoir un nouvel enfant */
   readonly birthCooldown = new Uint16Array(MAX_PEOPLE);
+  /** Numéro de son village, ou -1 s'il n'en a pas */
+  readonly village = new Int16Array(MAX_PEOPLE);
 
   /** Nombre d'habitants vivants */
   count = 0;
@@ -41,6 +43,7 @@ export class People {
     this.age,
     this.lifespan,
     this.birthCooldown,
+    this.village,
   ];
 
   /**
@@ -58,6 +61,7 @@ export class People {
     this.age[i] = 0;
     this.lifespan[i] = lifespan;
     this.birthCooldown[i] = 0;
+    this.village[i] = -1;
     return i;
   }
 

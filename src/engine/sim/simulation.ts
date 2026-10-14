@@ -2,13 +2,14 @@ import { Random } from '../core/random';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
 import { People } from './people';
-import { TICKS_PER_YEAR } from './sim-clock';
+import { TICKS_PER_DAY, TICKS_PER_YEAR } from './sim-clock';
+import { Villages } from './villages';
 
 /** Nombre d'habitants au début d'un monde */
 export const INITIAL_PEOPLE = 20;
 
 /** Distance maximale d'une promenade, en tuiles */
-const WANDER_RADIUS = 6;
+export const WANDER_RADIUS = 6;
 
 /** Vitesse de marche, en tuiles par pas (1,5 tuile par seconde à x1) */
 export const WALK_SPEED = 0.15;
@@ -47,6 +48,25 @@ export const BIRTH_HUNGER = 100;
 /** Distance maximale entre les deux adultes, en tuiles */
 const PARTNER_DISTANCE = 2;
 
+/** Un adulte sans village regarde autour de lui environ une fois par jour */
+const VILLAGE_CHECK_CHANCE = 1 / TICKS_PER_DAY;
+
+/** Distance à laquelle un adulte sans village rejoint un village existant, en tuiles */
+export const JOIN_RADIUS = 6;
+
+/** Pour fonder un village : au moins 5 adultes sans village, à 4 tuiles au plus du fondateur */
+export const MIN_FOUNDERS = 5;
+const FOUND_RADIUS = 4;
+
+/** Distance minimale entre deux villages, en tuiles */
+export const VILLAGE_SPACING = 12;
+
+/** Au-delà de 40 habitants, le village est plein : des adultes partent, et il n'accueille plus personne */
+export const MAX_VILLAGE_SIZE = 40;
+
+/** Chance qu'un adulte d'un village plein, ou affamé, le quitte à chaque pas (en moyenne au bout d'un an) */
+const LEAVE_CHANCE = 1 / TICKS_PER_YEAR;
+
 /**
  * Repousse de la nourriture, en portions par pas : une portion tous les 200 jours (environ 17 ans).
  * C'est elle qui fixe combien d'habitants l'île peut nourrir (voir le guide de l'étape 4).
@@ -72,6 +92,7 @@ const FOOD_SEARCH_RADIUS = 8;
  */
 export class Simulation {
   readonly people = new People();
+  readonly villages = new Villages();
   /** Nourriture disponible sur chaque tuile, en portions (même index que la grille du monde) */
   readonly food: Float32Array;
   private readonly random: Random;
@@ -137,20 +158,20 @@ export class Simulation {
 
       // Le dieu a pu changer le terrain : un mortel sous l'eau ou dans la roche périt
       if (!this.isWalkable(x, y)) {
-        people.remove(i);
+        this.removePerson(i);
         continue;
       }
 
       people.age[i]++;
       if (people.age[i] >= people.lifespan[i]) {
         // Mort de vieillesse
-        people.remove(i);
+        this.removePerson(i);
         continue;
       }
 
       people.hunger[i]++;
       if (people.hunger[i] >= STARVATION) {
-        people.remove(i);
+        this.removePerson(i);
         continue;
       }
 
@@ -159,6 +180,8 @@ export class Simulation {
       } else {
         this.tryBirth(i);
       }
+
+      this.updateVillage(i, x, y);
 
       // Affamé sur une tuile qui a de quoi manger : il mange au lieu de marcher
       if (this.isHungry(i) && this.eat(i, this.world.index(x, y))) {
@@ -190,6 +213,13 @@ export class Simulation {
     const child = p.add(Math.floor(p.x[i]), Math.floor(p.y[i]), this.randomLifespan());
     if (child < 0) return; // le monde est plein
 
+    // L'enfant naît dans le village de son parent
+    const village = p.village[i];
+    if (village >= 0) {
+      p.village[child] = village;
+      this.villages.join(village);
+    }
+
     p.birthCooldown[i] = BIRTH_COOLDOWN;
     p.hunger[i] = Math.min(STARVATION - 1, p.hunger[i] + BIRTH_HUNGER);
   }
@@ -206,6 +236,90 @@ export class Simulation {
       if (dx * dx + dy * dy <= maxSquared) return true;
     }
     return false;
+  }
+
+  /** Retire l'habitant i, en le décomptant de son village */
+  private removePerson(i: number): void {
+    const village = this.people.village[i];
+    if (village >= 0) {
+      this.villages.leave(village);
+    }
+    this.people.remove(i);
+  }
+
+  /**
+   * La vie de village d'un adulte :
+   * - si le village est plein, ou s'il y a faim, il finit par partir chercher mieux ailleurs ;
+   * - sans village et rassasié, environ une fois par jour, il en rejoint un proche ou tente d'en fonder un.
+   * (Les enfants restent dans le village où ils sont nés.)
+   */
+  private updateVillage(i: number, x: number, y: number): void {
+    const p = this.people;
+    if (p.age[i] < ADULT_AGE) return;
+
+    const village = p.village[i];
+    if (village >= 0) {
+      const crowded = this.villages.population[village] > MAX_VILLAGE_SIZE;
+      if ((crowded || this.isHungry(i)) && this.random.chance(LEAVE_CHANCE)) {
+        p.village[i] = -1;
+        this.villages.leave(village);
+      }
+      return;
+    }
+
+    if (this.isHungry(i) || !this.random.chance(VILLAGE_CHECK_CHANCE)) return;
+
+    const near = this.villages.nearest(x, y, JOIN_RADIUS);
+    if (near >= 0) {
+      // Un village plein n'accueille personne : il faudra aller plus loin
+      if (this.villages.population[near] < MAX_VILLAGE_SIZE) {
+        p.village[i] = near;
+        this.villages.join(near);
+      }
+      return;
+    }
+
+    this.tryFoundVillage(x, y);
+  }
+
+  /**
+   * Fonde un village sur la tuile (x, y) s'il y a assez d'adultes sans village autour,
+   * sur une prairie, loin des autres villages.
+   * Tous ceux qui sont autour, enfants compris, en deviennent les habitants.
+   */
+  private tryFoundVillage(x: number, y: number): void {
+    if (this.world.getTerrain(x, y) !== Terrain.Grass) return;
+    if (this.villages.nearest(x, y, VILLAGE_SPACING) >= 0) return;
+    if (this.countFoundersNear(x, y) < MIN_FOUNDERS) return;
+
+    const village = this.villages.found(x, y);
+    if (village < 0) return; // plus de place pour un village
+
+    const p = this.people;
+    for (let j = 0; j < p.count; j++) {
+      if (p.village[j] < 0 && this.isNearTile(j, x, y, FOUND_RADIUS)) {
+        p.village[j] = village;
+        this.villages.join(village);
+      }
+    }
+  }
+
+  /** Nombre d'adultes sans village à FOUND_RADIUS tuiles au plus de (x, y), le fondateur compris */
+  private countFoundersNear(x: number, y: number): number {
+    const p = this.people;
+    let count = 0;
+    for (let j = 0; j < p.count; j++) {
+      if (p.village[j] < 0 && p.age[j] >= ADULT_AGE && this.isNearTile(j, x, y, FOUND_RADIUS)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /** Vrai si l'habitant j est à `radius` tuiles au plus du centre de la tuile (x, y), sur chaque axe */
+  private isNearTile(j: number, x: number, y: number, radius: number): boolean {
+    const p = this.people;
+    return Math.abs(p.x[j] - (x + 0.5)) <= radius && Math.abs(p.y[j] - (y + 0.5)) <= radius;
   }
 
   private randomLifespan(): number {
@@ -292,11 +406,12 @@ export class Simulation {
     this.wander(i);
   }
 
-  /** Choisit une tuile praticable proche comme destination de promenade */
+  /** Choisit une destination de promenade : autour de son village s'il en a un, sinon autour de lui */
   private wander(i: number): void {
     const p = this.people;
-    const x = Math.floor(p.x[i]);
-    const y = Math.floor(p.y[i]);
+    const village = p.village[i];
+    const x = village >= 0 ? this.villages.x[village] : Math.floor(p.x[i]);
+    const y = village >= 0 ? this.villages.y[village] : Math.floor(p.y[i]);
 
     for (let attempt = 0; attempt < 8; attempt++) {
       const tx = x + this.random.int(-WANDER_RADIUS, WANDER_RADIUS);

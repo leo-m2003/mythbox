@@ -39,6 +39,10 @@ export class GameService {
   /** Nombre d'habitants vivants */
   readonly population = this.populationState.asReadonly();
 
+  private readonly villagesState = signal(0);
+  /** Nombre de villages */
+  readonly villages = this.villagesState.asReadonly();
+
   /** Vitesse à retrouver en sortant de la pause */
   private resumeSpeed: Exclude<SimSpeed, 0> = 1;
 
@@ -106,5 +110,6 @@ export class GameService {
     this.yearState.set(summary.year);
     this.dayState.set(summary.day);
     this.populationState.set(summary.population);
+    this.villagesState.set(summary.villages);
   }
 }

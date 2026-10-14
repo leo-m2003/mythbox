@@ -10,9 +10,12 @@ import {
   FOOD_REGROWTH,
   HUNGRY_AT,
   INITIAL_PEOPLE,
+  MAX_VILLAGE_SIZE,
+  MIN_FOUNDERS,
   PORTION_VALUE,
   Simulation,
   STARVATION,
+  WANDER_RADIUS,
 } from './simulation';
 
 /** Un petit monde plat de prairie, traversé par une rivière verticale en x = 16 et 17 */
@@ -46,6 +49,16 @@ function addAdult(sim: Simulation, x: number, y: number): number {
   const i = sim.people.add(x, y);
   sim.people.age[i] = 20 * TICKS_PER_YEAR;
   return i;
+}
+
+/** Fait tourner la simulation jusqu'à ce que la condition soit vraie (au plus `max` pas). Renvoie le nombre de pas */
+function runUntil(sim: Simulation, condition: () => boolean, max = 2000): number {
+  let t = 0;
+  while (!condition() && t < max) {
+    sim.tick();
+    t++;
+  }
+  return t;
 }
 
 /** Vrai si tous les habitants sont sur une tuile praticable */
@@ -270,5 +283,140 @@ describe('Simulation', () => {
       sim.tick();
     }
     expect(sim.people.count).toBe(4);
+  });
+
+  it('fonde un village quand assez d’adultes sans village sont réunis', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    for (let n = 0; n < MIN_FOUNDERS; n++) {
+      addAdult(sim, 5 + n, 5);
+    }
+
+    runUntil(sim, () => sim.villages.count > 0);
+
+    expect(sim.villages.count).toBe(1);
+    // Des enfants ont pu naître avant la fondation : ils rejoignent le village avec les adultes
+    expect(sim.villages.population[0]).toBe(sim.people.count);
+    for (let i = 0; i < sim.people.count; i++) {
+      expect(sim.people.village[i]).toBe(0);
+    }
+  });
+
+  it('ne fonde pas de village avec trop peu d’adultes', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    for (let n = 0; n < MIN_FOUNDERS - 1; n++) {
+      addAdult(sim, 5 + n, 5);
+    }
+    runUntil(sim, () => sim.villages.count > 0, 1000);
+    expect(sim.villages.count).toBe(0);
+  });
+
+  it('fait rejoindre un village proche plutôt que d’en fonder un autre', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const v = sim.villages.found(8, 8);
+    const settler = addAdult(sim, 8, 8);
+    sim.people.village[settler] = v;
+    sim.villages.join(v);
+
+    // Assez de monde pour fonder, mais trop près du village existant
+    for (let n = 0; n < MIN_FOUNDERS; n++) {
+      addAdult(sim, 6 + n, 10);
+    }
+    runUntil(sim, () => sim.villages.population[v] === MIN_FOUNDERS + 1);
+
+    expect(sim.villages.count).toBe(1);
+    expect(sim.villages.population[v]).toBe(MIN_FOUNDERS + 1);
+  });
+
+  it('n’accueille plus personne dans un village plein', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const v = sim.villages.found(8, 8);
+    // On gonfle le compteur : MAX_VILLAGE_SIZE habitants « absents » de la carte
+    sim.villages.population[v] = MAX_VILLAGE_SIZE;
+    const newcomer = addAdult(sim, 8, 8);
+
+    for (let t = 0; t < 1000; t++) {
+      sim.tick();
+    }
+    expect(sim.people.village[newcomer]).toBe(-1);
+  });
+
+  it('fait partir un adulte d’un village trop peuplé', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const v = sim.villages.found(8, 8);
+    const i = addAdult(sim, 8, 8);
+    sim.people.village[i] = v;
+    // Lui, plus MAX_VILLAGE_SIZE habitants « absents » de la carte : le village est trop peuplé
+    sim.villages.population[v] = MAX_VILLAGE_SIZE + 1;
+
+    // 1 chance sur 120 par pas : en 2000 pas, le départ est quasi certain
+    runUntil(sim, () => sim.people.village[i] < 0);
+
+    expect(sim.people.village[i]).toBe(-1);
+    expect(sim.villages.population[v]).toBe(MAX_VILLAGE_SIZE);
+  });
+
+  it('ne rejoint pas de village tant qu’il a faim', () => {
+    // Une plage sans nourriture : il reste affamé
+    const sim = new Simulation(sandWorld(), 1);
+    const v = sim.villages.found(8, 8);
+    const settler = addAdult(sim, 8, 8);
+    sim.people.village[settler] = v;
+    sim.villages.join(v);
+
+    const newcomer = addAdult(sim, 9, 8);
+    sim.people.hunger[newcomer] = HUNGRY_AT;
+    for (let t = 0; t < 150; t++) {
+      sim.tick();
+    }
+    expect(sim.people.village[newcomer]).toBe(-1);
+  });
+
+  it('fait naître les enfants dans le village de leur parent', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const v = sim.villages.found(5, 5);
+    for (const x of [5, 6]) {
+      const i = addAdult(sim, x, 5);
+      sim.people.village[i] = v;
+      sim.villages.join(v);
+    }
+
+    runUntil(sim, () => sim.people.count === 3);
+
+    expect(sim.people.count).toBe(3);
+    expect(sim.people.village[2]).toBe(v);
+    expect(sim.villages.population[v]).toBe(3);
+  });
+
+  it('garde les villageois autour de leur village', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const v = sim.villages.found(8, 8);
+    const i = addAdult(sim, 8, 8);
+    sim.people.village[i] = v;
+    sim.villages.join(v);
+
+    for (let t = 0; t < 1000; t++) {
+      sim.tick();
+      // Ses destinations sont à WANDER_RADIUS tuiles au plus du centre : il ne s'en éloigne pas plus
+      expect(Math.abs(sim.people.x[i] - 8.5)).toBeLessThanOrEqual(WANDER_RADIUS);
+      expect(Math.abs(sim.people.y[i] - 8.5)).toBeLessThanOrEqual(WANDER_RADIUS);
+    }
+  });
+
+  it('abandonne un village quand son dernier habitant meurt', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+    const v = sim.villages.found(5, 5);
+    const i = addAdult(sim, 5, 5);
+    sim.people.village[i] = v;
+    sim.villages.join(v);
+
+    // Le dieu inonde sa tuile
+    const tile = world.index(5, 5);
+    world.elevation[tile] = 0.3;
+    world.refreshTerrain(tile);
+    sim.tick();
+
+    expect(sim.people.count).toBe(0);
+    expect(sim.villages.count).toBe(0);
   });
 });
