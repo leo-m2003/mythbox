@@ -2,6 +2,10 @@ import { Random } from './core/random';
 import { PointerInput } from './input/pointer-input';
 import { Camera, type Point } from './render/camera';
 import { MapRenderer } from './render/map-renderer';
+import { drawPeople } from './render/people-renderer';
+import { drawVillages } from './render/village-renderer';
+import { SimClock, TICKS_PER_DAY, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
+import { Simulation } from './sim/simulation';
 import { applyBrush, BrushKind } from './world/brushes';
 import { generateWorld } from './world/generator';
 import { World } from './world/world';
@@ -21,6 +25,21 @@ const BRUSH_SPEED = 0.25;
 /** Durée maximale d'une image, en secondes (évite un énorme coup de pinceau après une pause) */
 const MAX_FRAME_TIME = 0.05;
 
+/** Intervalle entre deux résumés envoyés à l'interface, en secondes */
+const SUMMARY_INTERVAL = 0.25;
+
+/** Petit résumé du monde, envoyé à l'interface quelques fois par seconde */
+export interface WorldSummary {
+  /** Année en cours, à partir de 1 */
+  year: number;
+  /** Jour dans l'année, de 1 à 12 */
+  day: number;
+  /** Nombre d'habitants vivants */
+  population: number;
+  /** Nombre de villages */
+  villages: number;
+}
+
 /**
  * Point d'entrée unique du moteur.
  * Angular ne parle qu'à cette classe, jamais directement au monde ou au rendu.
@@ -31,12 +50,19 @@ export class Engine {
   private readonly input: PointerInput;
   private world!: World;
   private mapRenderer!: MapRenderer;
+  private simulation!: Simulation;
   private frameId = 0;
   private lastFrameTime = 0;
 
   /** Pinceau actif, ou null pour l'outil « main » */
   private activeBrush: BrushKind | null = null;
   private brushRadius = 4;
+
+  private readonly clock = new SimClock();
+  private summaryTimer = 0;
+
+  /** Appelé quelques fois par seconde avec le résumé du monde */
+  onSummary?: (summary: WorldSummary) => void;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -56,7 +82,31 @@ export class Engine {
   newWorld(seed: number = Random.newSeed()): void {
     this.world = generateWorld({ width: WORLD_WIDTH, height: WORLD_HEIGHT, seed });
     this.mapRenderer = new MapRenderer(this.world);
+    this.simulation = new Simulation(this.world, seed);
+    this.simulation.spawnInitialGroup();
+    this.clock.reset();
     this.resetView();
+    this.emitSummary();
+  }
+
+  get speed(): SimSpeed {
+    return this.clock.speed;
+  }
+
+  /** Change la vitesse de la simulation (0 = pause) */
+  setSpeed(speed: SimSpeed): void {
+    this.clock.setSpeed(speed);
+  }
+
+  /** Résumé du monde à l'instant présent */
+  summary(): WorldSummary {
+    const tick = this.clock.tick;
+    return {
+      year: Math.floor(tick / TICKS_PER_YEAR) + 1,
+      day: Math.floor((tick % TICKS_PER_YEAR) / TICKS_PER_DAY) + 1,
+      population: this.simulation.people.count,
+      villages: this.simulation.villages.count,
+    };
   }
 
   /** Recentre la vue sur le monde entier */
@@ -116,8 +166,34 @@ export class Engine {
     this.input.dispose();
   }
 
-  /** Fait évoluer le monde (pour l'instant : applique le pinceau) */
+  /** Fait évoluer le monde : pinceau, puis simulation, puis résumé */
   private update(dt: number): void {
+    // Le pinceau suit le temps réel : on peut façonner le monde même en pause
+    this.paint(dt);
+
+    const ticks = this.clock.advance(dt);
+    for (let i = 0; i < ticks; i++) {
+      this.simulateTick();
+    }
+
+    this.summaryTimer += dt;
+    if (this.summaryTimer >= SUMMARY_INTERVAL) {
+      this.summaryTimer = 0;
+      this.emitSummary();
+    }
+  }
+
+  /** Un pas de simulation (1/10 de seconde à x1) */
+  private simulateTick(): void {
+    this.simulation.tick();
+  }
+
+  private emitSummary(): void {
+    this.onSummary?.(this.summary());
+  }
+
+  /** Applique le pinceau actif sous le pointeur */
+  private paint(dt: number): void {
     if (this.activeBrush === null || !this.input.painting) return;
 
     const tile = this.hoveredTile();
@@ -150,7 +226,11 @@ export class Engine {
 
     // Position à l'écran du coin haut-gauche du monde
     const origin = camera.worldToScreen(0, 0);
-    this.mapRenderer.draw(ctx, Math.round(origin.x), Math.round(origin.y), camera.zoom);
+    const ox = Math.round(origin.x);
+    const oy = Math.round(origin.y);
+    this.mapRenderer.draw(ctx, ox, oy, camera.zoom);
+    drawVillages(ctx, this.simulation.villages, ox, oy, camera.zoom);
+    drawPeople(ctx, this.simulation.people, ox, oy, camera.zoom);
 
     this.drawBrushPreview();
   }
