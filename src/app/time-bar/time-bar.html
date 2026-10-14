@@ -1,0 +1,28 @@
+<div class="panel" role="group" aria-label="Écoulement du temps">
+  <span class="stat">An <span class="value">{{ game.year() }}</span></span>
+  <span class="stat">Jour <span class="value">{{ game.day() }}</span></span>
+  <span class="stat">Habitants <span class="value">{{ game.population() }}</span></span>
+  <span class="stat">Villages <span class="value">{{ game.villages() }}</span></span>
+
+  <button
+    type="button"
+    [class.active]="game.speed() === 0"
+    [attr.aria-pressed]="game.speed() === 0"
+    title="Pause (Espace)"
+    (click)="game.togglePause()"
+  >
+    Pause
+  </button>
+
+  @for (speed of speeds; track speed) {
+    <button
+      type="button"
+      [class.active]="game.speed() === speed"
+      [attr.aria-pressed]="game.speed() === speed"
+      [title]="'Vitesse x' + speed"
+      (click)="game.setSpeed(speed)"
+    >
+      x{{ speed }}
+    </button>
+  }
+</div>

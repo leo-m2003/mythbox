@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
-import { Engine, MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS } from '@engine/engine';
+import { Engine, MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS, type WorldSummary } from '@engine/engine';
+import type { SimSpeed } from '@engine/sim/sim-clock';
 import type { BrushKind } from '@engine/world/brushes';
 
 /**
@@ -22,6 +23,29 @@ export class GameService {
   /** Rayon du pinceau, en tuiles */
   readonly brushRadius = this.brushRadiusState.asReadonly();
 
+  private readonly speedState = signal<SimSpeed>(1);
+  /** Vitesse de la simulation (0 = pause) */
+  readonly speed = this.speedState.asReadonly();
+
+  private readonly yearState = signal(1);
+  /** Année en cours dans le monde */
+  readonly year = this.yearState.asReadonly();
+
+  private readonly dayState = signal(1);
+  /** Jour dans l'année en cours */
+  readonly day = this.dayState.asReadonly();
+
+  private readonly populationState = signal(0);
+  /** Nombre d'habitants vivants */
+  readonly population = this.populationState.asReadonly();
+
+  private readonly villagesState = signal(0);
+  /** Nombre de villages */
+  readonly villages = this.villagesState.asReadonly();
+
+  /** Vitesse à retrouver en sortant de la pause */
+  private resumeSpeed: Exclude<SimSpeed, 0> = 1;
+
   /** Appelé par le composant canvas quand le moteur est prêt */
   attach(engine: Engine): void {
     this.engine = engine;
@@ -29,9 +53,17 @@ export class GameService {
     // Le service fait référence : on transmet ses réglages au moteur
     engine.setBrush(this.toolState());
     engine.setBrushRadius(this.brushRadiusState());
+    engine.setSpeed(this.speedState());
+
+    // Le moteur envoie son résumé quelques fois par seconde
+    engine.onSummary = (summary) => this.applySummary(summary);
+    this.applySummary(engine.summary());
   }
 
   detach(): void {
+    if (this.engine) {
+      this.engine.onSummary = undefined;
+    }
     this.engine = undefined;
   }
 
@@ -58,5 +90,26 @@ export class GameService {
 
   changeBrushRadius(delta: number): void {
     this.setBrushRadius(this.brushRadiusState() + delta);
+  }
+
+  setSpeed(speed: SimSpeed): void {
+    if (speed !== 0) {
+      this.resumeSpeed = speed;
+    }
+    this.speedState.set(speed);
+    this.engine?.setSpeed(speed);
+  }
+
+  /** Met en pause, ou reprend à la vitesse d'avant */
+  togglePause(): void {
+    this.setSpeed(this.speedState() === 0 ? this.resumeSpeed : 0);
+  }
+
+  /** Recopie le résumé du moteur dans les signals (un signal inchangé ne redessine rien) */
+  private applySummary(summary: WorldSummary): void {
+    this.yearState.set(summary.year);
+    this.dayState.set(summary.day);
+    this.populationState.set(summary.population);
+    this.villagesState.set(summary.villages);
   }
 }
