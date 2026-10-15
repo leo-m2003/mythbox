@@ -83,6 +83,12 @@ export const QUAKE_JOLT = 0.05;
 /** Profondeur de la faille en son milieu (en altitude) ; elle diminue vers ses deux bouts */
 export const CRACK_DEPTH = 0.25;
 
+/** Rayon de la fertilité, en tuiles */
+export const FERTILITY_RADIUS = 5;
+
+/** Chance qu'un adulte béni, en âge d'avoir des enfants, en ait un sur le champ */
+export const BLESSED_BIRTH_CHANCE = 0.5;
+
 /**
  * Ce qu'a fait un pouvoir. Il servira à calculer la foi gagnée ou perdue (v0.6)
  * et à écrire les mythes du Codex (v0.7).
@@ -98,6 +104,8 @@ export interface PowerResult {
   foodGiven: number;
   /** Tuiles dont le terrain a changé (une prairie devenue eau, une colline devenue montagne…) */
   terrainChanged: number;
+  /** Enfants nés grâce au pouvoir */
+  childrenBorn: number;
   /**
    * Village le plus touché, ou -1 : celui qui a perdu le plus d'habitants si le pouvoir a tué,
    * sinon celui qui a le plus d'habitants sous le pouvoir
@@ -126,6 +134,7 @@ function noEffect(): PowerResult {
     tilesExtinguished: 0,
     foodGiven: 0,
     terrainChanged: 0,
+    childrenBorn: 0,
     mostAffectedVillage: -1,
   };
 }
@@ -161,9 +170,7 @@ export const FOOD_REGROWTH = 1 / (5 * TICKS_PER_YEAR);
  * que d'aller chercher TERRAIN_INFO[terrain].food 49 152 fois.
  * (Object.values parcourt les clés numériques 0 à 7 dans l'ordre : l'index est bien le terrain.)
  */
-const FOOD_CAPACITY = Float32Array.from(
-  Object.values(TERRAIN_INFO).map((info) => info.food),
-);
+const FOOD_CAPACITY = Float32Array.from(Object.values(TERRAIN_INFO).map((info) => info.food));
 
 /** Distance à laquelle un habitant affamé repère de la nourriture, en tuiles */
 const FOOD_SEARCH_RADIUS = 8;
@@ -371,7 +378,10 @@ export class Simulation {
     this.forEachTileAround(x, y, QUAKE_RADIUS, (i) => {
       const distance = Math.hypot((i % world.width) - x, Math.floor(i / world.width) - y);
       const jolt = QUAKE_JOLT * (1 - distance / (QUAKE_RADIUS + 1));
-      world.elevation[i] = Math.min(1, Math.max(0, world.elevation[i] + this.random.range(-jolt, jolt)));
+      world.elevation[i] = Math.min(
+        1,
+        Math.max(0, world.elevation[i] + this.random.range(-jolt, jolt)),
+      );
       world.refreshTerrain(i);
     });
 
@@ -390,6 +400,50 @@ export class Simulation {
     );
     result.victims = shaken.victims;
     result.mostAffectedVillage = shaken.mostAffectedVillage;
+    return result;
+  }
+
+  /**
+   * La fertilité bénit la terre et les mortels autour de la tuile (x, y) :
+   * la terre reverdit (même brûlée) et sa nourriture repousse d'un coup, les mortels sont rassasiés,
+   * et chaque adulte en âge d'avoir des enfants a une chance sur deux d'en avoir un, sans partenaire.
+   */
+  bless(x: number, y: number): PowerResult {
+    const result = noEffect();
+    // La bénédiction ne tue personne
+    result.mostAffectedVillage = this.peopleAround(
+      x,
+      y,
+      FERTILITY_RADIUS,
+      () => 0,
+    ).mostAffectedVillage;
+
+    this.forEachTileAround(x, y, FERTILITY_RADIUS, (i) => {
+      this.fire.regrow(i, SCORCH_TICKS);
+      const before = this.food[i];
+      this.food[i] = this.foodCapacity(i);
+      result.foodGiven += this.food[i] - before;
+    });
+
+    const p = this.people;
+    const cx = x + 0.5;
+    const cy = y + 0.5;
+    const radiusSquared = FERTILITY_RADIUS * FERTILITY_RADIUS;
+    // Les enfants sont ajoutés à la fin du tableau : on ne parcourt que les habitants d'avant la bénédiction
+    const count = p.count;
+    for (let i = 0; i < count; i++) {
+      const dx = p.x[i] - cx;
+      const dy = p.y[i] - cy;
+      if (dx * dx + dy * dy > radiusSquared) continue;
+
+      // Le délai entre deux enfants est respecté : cliquer dix fois ne fait pas dix enfants
+      const canHaveChild = p.birthCooldown[i] === 0 && this.isFertile(i);
+      if (canHaveChild && this.random.chance(BLESSED_BIRTH_CHANCE) && this.giveBirth(i) >= 0) {
+        result.childrenBorn++;
+      }
+      // Rassasié, même juste après avoir eu un enfant
+      p.hunger[i] = 0;
+    }
     return result;
   }
 
@@ -521,7 +575,12 @@ export class Simulation {
     const y = Math.floor(i / this.world.width);
     const d = this.dirty;
     this.dirty = d
-      ? { x0: Math.min(d.x0, x), y0: Math.min(d.y0, y), x1: Math.max(d.x1, x), y1: Math.max(d.y1, y) }
+      ? {
+          x0: Math.min(d.x0, x),
+          y0: Math.min(d.y0, y),
+          x1: Math.max(d.x1, x),
+          y1: Math.max(d.y1, y),
+        }
       : { x0: x, y0: y, x1: x, y1: y };
   }
 
@@ -537,14 +596,22 @@ export class Simulation {
    * (Simplification : pas encore d'hommes et de femmes, ni de couples.)
    */
   private tryBirth(i: number): void {
-    const p = this.people;
     if (!this.isFertile(i) || this.isHungry(i)) return;
     // Le hasard d'abord : il évite de chercher un partenaire à chaque pas
     if (!this.random.chance(BIRTH_CHANCE)) return;
     if (!this.hasPartnerNear(i)) return;
 
+    this.giveBirth(i);
+  }
+
+  /**
+   * L'habitant i a un enfant, né sur sa tuile et dans son village.
+   * Renvoie le numéro de l'enfant, ou -1 si le monde est plein.
+   */
+  private giveBirth(i: number): number {
+    const p = this.people;
     const child = p.add(Math.floor(p.x[i]), Math.floor(p.y[i]), this.randomLifespan());
-    if (child < 0) return; // le monde est plein
+    if (child < 0) return -1; // le monde est plein
 
     // L'enfant naît dans le village de son parent
     const village = p.village[i];
@@ -555,6 +622,7 @@ export class Simulation {
 
     p.birthCooldown[i] = BIRTH_COOLDOWN;
     p.hunger[i] = Math.min(STARVATION - 1, p.hunger[i] + BIRTH_HUNGER);
+    return child;
   }
 
   /** Vrai si un autre adulte se trouve à moins de PARTNER_DISTANCE tuiles de l'habitant i */

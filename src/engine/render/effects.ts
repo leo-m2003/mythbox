@@ -53,6 +53,16 @@ const WAVE_DURATION = 0.8;
 /** Nuages de poussière soulevés par tuile de la zone du séisme */
 const DUST_PER_TILE = 0.4;
 
+/** Durée de la lueur dorée de la fertilité, en secondes */
+const GLOW_DURATION = 1.2;
+/** Étincelles dorées par tuile de la zone bénie */
+const SPARKLES_PER_TILE = 0.6;
+
+/** Les trois sortes de particules qui montent : fumée d'incendie, poussière de séisme, étincelles de fertilité */
+const SMOKE = 0;
+const DUST = 1;
+const SPARKLE = 2;
+
 interface Bolt {
   /** Points de la ligne brisée, en tuiles : x0, y0, x1, y1… */
   readonly points: Float32Array;
@@ -75,14 +85,16 @@ export class Effects {
   /** Dérive horizontale, en tuiles par seconde */
   private readonly smokeDrift = new Float32Array(MAX_SMOKE);
   private readonly smokeAge = new Float32Array(MAX_SMOKE);
-  /** 1 pour la poussière d'un séisme (brune), 0 pour la fumée d'un incendie (grise) */
-  private readonly smokeDust = new Uint8Array(MAX_SMOKE);
+  /** Sorte de particule : SMOKE, DUST ou SPARKLE */
+  private readonly smokeKind = new Uint8Array(MAX_SMOKE);
   private smokeCount = 0;
 
   /** Secousse de l'écran : temps restant, en secondes */
   private shakeLeft = 0;
   /** Ondes de choc des séismes (il n'y en a que quelques-unes à la fois) */
   private waves: { x: number; y: number; radius: number; age: number }[] = [];
+  /** Lueurs dorées de la fertilité */
+  private glows: { x: number; y: number; radius: number; age: number }[] = [];
 
   // La pluie : gouttes en tableaux typés, comme la fumée
   private readonly dropX = new Float32Array(MAX_DROPS);
@@ -127,7 +139,7 @@ export class Effects {
     this.smokeY[k] = y;
     this.smokeDrift[k] = this.random.range(0.1, 0.6);
     this.smokeAge[k] = 0;
-    this.smokeDust[k] = 0;
+    this.smokeKind[k] = SMOKE;
   }
 
   /**
@@ -149,7 +161,24 @@ export class Effects {
       // La poussière part dans tous les sens, et certaines volutes naissent un peu plus tard
       this.smokeDrift[k] = this.random.range(-0.6, 0.6);
       this.smokeAge[k] = this.random.range(0, 0.6);
-      this.smokeDust[k] = 1;
+      this.smokeKind[k] = DUST;
+    }
+  }
+
+  /** Une bénédiction de fertilité sur le disque de centre (x, y) : une lueur dorée et des étincelles qui montent */
+  addBlessing(x: number, y: number, radius: number): void {
+    this.glows.push({ x, y, radius, age: 0 });
+
+    const sparkles = Math.round(Math.PI * radius * radius * SPARKLES_PER_TILE);
+    for (let n = 0; n < sparkles && this.smokeCount < MAX_SMOKE; n++) {
+      const angle = this.random.range(0, Math.PI * 2);
+      const distance = radius * Math.sqrt(this.random.next());
+      const k = this.smokeCount++;
+      this.smokeX[k] = x + Math.cos(angle) * distance;
+      this.smokeY[k] = y + Math.sin(angle) * distance;
+      this.smokeDrift[k] = this.random.range(-0.2, 0.2);
+      this.smokeAge[k] = this.random.range(0, 1);
+      this.smokeKind[k] = SPARKLE;
     }
   }
 
@@ -207,7 +236,7 @@ export class Effects {
         this.smokeY[k] = this.smokeY[last];
         this.smokeDrift[k] = this.smokeDrift[last];
         this.smokeAge[k] = this.smokeAge[last];
-        this.smokeDust[k] = this.smokeDust[last];
+        this.smokeKind[k] = this.smokeKind[last];
         continue;
       }
       // Elle monte et le vent la pousse un peu vers la droite
@@ -222,6 +251,10 @@ export class Effects {
       wave.age += dt;
     }
     this.waves = this.waves.filter((wave) => wave.age < WAVE_DURATION);
+    for (const glow of this.glows) {
+      glow.age += dt;
+    }
+    this.glows = this.glows.filter((glow) => glow.age < GLOW_DURATION);
   }
 
   private updateRain(dt: number): void {
@@ -248,6 +281,7 @@ export class Effects {
   }
 
   draw(ctx: CanvasRenderingContext2D, originX: number, originY: number, zoom: number): void {
+    this.drawGlows(ctx, originX, originY, zoom);
     this.drawWaves(ctx, originX, originY, zoom);
     this.drawSmoke(ctx, originX, originY, zoom);
     this.drawRain(ctx, originX, originY, zoom);
@@ -284,8 +318,34 @@ export class Effects {
     }
   }
 
+  /** Les lueurs de la fertilité : un disque doré qui s'allume d'un coup puis s'éteint doucement */
+  private drawGlows(
+    ctx: CanvasRenderingContext2D,
+    originX: number,
+    originY: number,
+    zoom: number,
+  ): void {
+    for (const glow of this.glows) {
+      const t = glow.age / GLOW_DURATION;
+      const cx = originX + glow.x * zoom;
+      const cy = originY + glow.y * zoom;
+      const r = (glow.radius + 1) * zoom;
+      const light = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      light.addColorStop(0, `rgba(255, 220, 120, ${0.45 * (1 - t)})`);
+      light.addColorStop(0.7, `rgba(255, 220, 120, ${0.2 * (1 - t)})`);
+      light.addColorStop(1, 'rgba(255, 220, 120, 0)');
+      ctx.fillStyle = light;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+  }
+
   /** Les ondes de choc : des anneaux bruns qui s'élargissent jusqu'au bord du séisme et s'effacent */
-  private drawWaves(ctx: CanvasRenderingContext2D, originX: number, originY: number, zoom: number): void {
+  private drawWaves(
+    ctx: CanvasRenderingContext2D,
+    originX: number,
+    originY: number,
+    zoom: number,
+  ): void {
     for (const wave of this.waves) {
       // De 0 (le choc) à 1 (l'onde a atteint le bord)
       const t = wave.age / WAVE_DURATION;
@@ -303,7 +363,10 @@ export class Effects {
     }
   }
 
-  /** La fumée (grise) et la poussière (brune) : des disques qui grossissent et s'effacent en montant */
+  /**
+   * La fumée (grise) et la poussière (brune) : des disques qui grossissent et s'effacent en montant.
+   * Les étincelles (dorées) : de petits points qui scintillent en montant.
+   */
   private drawSmoke(
     ctx: CanvasRenderingContext2D,
     originX: number,
@@ -313,18 +376,44 @@ export class Effects {
     for (let k = 0; k < this.smokeCount; k++) {
       // De 0 (vient de naître) à 1 (va disparaître)
       const t = this.smokeAge[k] / SMOKE_DURATION;
+      const kind = this.smokeKind[k];
+      if (kind === SPARKLE) {
+        // Le scintillement : l'éclat varie vite, et chaque étincelle a son propre rythme (+ k)
+        const twinkle = 0.6 + 0.4 * Math.sin(this.smokeAge[k] * 20 + k);
+        const size = Math.max(2, 0.3 * zoom);
+        ctx.fillStyle = `rgba(255, 238, 150, ${(1 - t) * twinkle})`;
+        ctx.fillRect(
+          originX + this.smokeX[k] * zoom - size / 2,
+          originY + this.smokeY[k] * zoom - size / 2,
+          size,
+          size,
+        );
+        continue;
+      }
       const radius = Math.max(1.5, (0.4 + t * 0.8) * zoom);
-      ctx.fillStyle = this.smokeDust[k]
-        ? `rgba(150, 120, 85, ${0.5 * (1 - t)})`
-        : `rgba(70, 66, 62, ${0.45 * (1 - t)})`;
+      ctx.fillStyle =
+        kind === DUST
+          ? `rgba(150, 120, 85, ${0.5 * (1 - t)})`
+          : `rgba(70, 66, 62, ${0.45 * (1 - t)})`;
       ctx.beginPath();
-      ctx.arc(originX + this.smokeX[k] * zoom, originY + this.smokeY[k] * zoom, radius, 0, Math.PI * 2);
+      ctx.arc(
+        originX + this.smokeX[k] * zoom,
+        originY + this.smokeY[k] * zoom,
+        radius,
+        0,
+        Math.PI * 2,
+      );
       ctx.fill();
     }
   }
 
   /** L'ombre du nuage, puis les gouttes (traits obliques) et leurs éclaboussures (petits cercles) */
-  private drawRain(ctx: CanvasRenderingContext2D, originX: number, originY: number, zoom: number): void {
+  private drawRain(
+    ctx: CanvasRenderingContext2D,
+    originX: number,
+    originY: number,
+    zoom: number,
+  ): void {
     if (this.cloud > 0) {
       const cx = originX + this.cloudX * zoom;
       const cy = originY + this.cloudY * zoom;
@@ -377,7 +466,12 @@ export class Effects {
    * Les gouttes partent jusqu'à DROP_HEIGHT tuiles plus haut et un peu à gauche (le vent) :
    * le nuage est placé là.
    */
-  private drawCloud(ctx: CanvasRenderingContext2D, originX: number, originY: number, zoom: number): void {
+  private drawCloud(
+    ctx: CanvasRenderingContext2D,
+    originX: number,
+    originY: number,
+    zoom: number,
+  ): void {
     if (this.cloud === 0) return;
     const size = this.cloudRadius * zoom;
     const cx = originX + (this.cloudX - DROP_HEIGHT * 0.2) * zoom;

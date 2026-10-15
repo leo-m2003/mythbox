@@ -10,6 +10,8 @@ export enum PowerKind {
   Rain,
   /** Le séisme de Poséidon, « l'ébranleur de la terre » : ouvre une faille et secoue les mortels */
   Quake,
+  /** La fertilité, le don de Déméter, déesse des moissons : la nourriture repousse et des enfants naissent */
+  Fertility,
 }
 
 /**

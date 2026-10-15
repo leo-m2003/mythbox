@@ -6,8 +6,21 @@ import { drawPeople } from './render/people-renderer';
 import { drawVillages } from './render/village-renderer';
 import { Effects } from './render/effects';
 import { FireRenderer } from './render/fire-renderer';
-import { SimClock, TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
-import { FIRE_RADIUS, LIGHTNING_RADIUS, QUAKE_RADIUS, RAIN_RADIUS, Simulation } from './sim/simulation';
+import {
+  SimClock,
+  TICKS_PER_DAY,
+  TICKS_PER_MONTH,
+  TICKS_PER_YEAR,
+  type SimSpeed,
+} from './sim/sim-clock';
+import {
+  FERTILITY_RADIUS,
+  FIRE_RADIUS,
+  LIGHTNING_RADIUS,
+  QUAKE_RADIUS,
+  RAIN_RADIUS,
+  Simulation,
+} from './sim/simulation';
 import { HAND, PowerKind, type Tool } from './tool';
 import { applyBrush } from './world/brushes';
 import { generateWorld } from './world/generator';
@@ -239,6 +252,10 @@ export class Engine {
         this.simulation.quake(tile.x, tile.y);
         this.effects.addQuake(tile.x + 0.5, tile.y + 0.5, QUAKE_RADIUS);
         break;
+      case PowerKind.Fertility:
+        this.simulation.bless(tile.x, tile.y);
+        this.effects.addBlessing(tile.x + 0.5, tile.y + 0.5, FERTILITY_RADIUS);
+        break;
     }
   }
 
@@ -309,7 +326,8 @@ export class Engine {
     const { ctx, camera } = this;
     const center = camera.worldToScreen(tile.x + 0.5, tile.y + 0.5);
     const isPower = this.tool.type === 'power';
-    const tiles = this.tool.type === 'power' ? powerRadius(this.tool.power) : this.brushRadius + 0.5;
+    const tiles =
+      this.tool.type === 'power' ? powerRadius(this.tool.power) : this.brushRadius + 0.5;
     // Au moins 4 pixels, pour rester visible quand on dézoome
     const radius = Math.max(4, tiles * camera.zoom);
 
@@ -340,5 +358,7 @@ function powerRadius(power: PowerKind): number {
       return RAIN_RADIUS + 0.5;
     case PowerKind.Quake:
       return QUAKE_RADIUS + 0.5;
+    case PowerKind.Fertility:
+      return FERTILITY_RADIUS + 0.5;
   }
 }

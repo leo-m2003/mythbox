@@ -7,7 +7,9 @@ import {
   ADULT_AGE,
   BIRTH_COOLDOWN,
   BIRTH_HUNGER,
+  BLESSED_BIRTH_CHANCE,
   FERTILE_UNTIL,
+  FERTILITY_RADIUS,
   FIRE_RADIUS,
   FOOD_REGROWTH,
   HUNGRY_AT,
@@ -708,5 +710,112 @@ describe('Simulation', () => {
     new Simulation(a, 7).quake(8, 8);
     new Simulation(b, 7).quake(8, 8);
     expect(a.elevation).toEqual(b.elevation);
+  });
+
+    it('la fertilité remplit la nourriture dans son rayon, et pas au-delà', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+    expect(FERTILITY_RADIUS).toBe(5);
+    const center = world.index(8, 8);
+    const edge = world.index(13, 8); // à 5 tuiles : encore dans la zone
+    const outside = world.index(14, 8); // à 6 tuiles : hors de la zone
+    sim.food[center] = 0;
+    sim.food[edge] = 0.5;
+    sim.food[outside] = 0;
+
+    const result = sim.bless(8, 8);
+
+    // Une prairie porte 2 portions au plus ; toutes les autres tuiles étaient déjà pleines
+    expect(sim.food[center]).toBe(2);
+    expect(sim.food[edge]).toBe(2);
+    expect(sim.food[outside]).toBe(0);
+    expect(result.foodGiven).toBe(3.5);
+    expect(result.victims).toBe(0);
+  });
+
+  it('la fertilité fait reverdir la terre brûlée sur-le-champ', () => {
+    const world = sandWorld(5, 5);
+    const tile = world.index(5, 5);
+    const sim = new Simulation(world, 1);
+    sim.fire.ignite(tile);
+    runUntil(sim, () => sim.fire.count === 0);
+    expect(sim.fire.scorched[tile]).toBe(SCORCH_TICKS);
+
+    sim.bless(5, 5);
+
+    expect(sim.fire.scorched[tile]).toBe(0);
+    expect(sim.fire.scorchedCount).toBe(0);
+    expect(sim.food[tile]).toBe(2);
+  });
+
+  it('la fertilité rassasie les mortels, ne tue personne et dit quel village elle bénit le plus', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const a = sim.villages.found(2, 2);
+    const b = sim.villages.found(25, 25);
+    for (const v of [a, b, b]) {
+      const i = addAdult(sim, 8, 8);
+      sim.people.village[i] = v;
+      sim.villages.join(v);
+    }
+    const far = addAdult(sim, 25, 25);
+    for (let i = 0; i < sim.people.count; i++) {
+      sim.people.hunger[i] = HUNGRY_AT;
+      // Ils viennent d'avoir un enfant : pas de nouvelle naissance, seule la faim compte ici
+      sim.people.birthCooldown[i] = BIRTH_COOLDOWN;
+    }
+
+    const result = sim.bless(8, 8);
+
+    expect(result.victims).toBe(0);
+    expect(result.childrenBorn).toBe(0);
+    expect(result.mostAffectedVillage).toBe(b);
+    expect(sim.people.count).toBe(4);
+    for (let i = 0; i < 3; i++) {
+      expect(sim.people.hunger[i]).toBe(0);
+    }
+    expect(sim.people.hunger[far]).toBe(HUNGRY_AT);
+  });
+
+  it('la fertilité fait naître des enfants aux seuls adultes en âge, et un seul par délai', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const PARENTS = 100;
+    for (let n = 0; n < PARENTS; n++) addAdult(sim, 8, 8);
+    // Ceux-là n'auront pas d'enfant : trop jeunes, trop âgés, ou trop loin
+    for (let n = 0; n < 10; n++) {
+      sim.people.add(8, 8);
+      const elder = addAdult(sim, 8, 8);
+      sim.people.age[elder] = FERTILE_UNTIL;
+      addAdult(sim, 25, 25);
+    }
+    const before = sim.people.count;
+
+    const first = sim.bless(8, 8);
+
+    // Une chance sur deux chacun : autour de 50 enfants sur 100 adultes
+    expect(BLESSED_BIRTH_CHANCE).toBe(0.5);
+    expect(first.childrenBorn).toBeGreaterThan(30);
+    expect(first.childrenBorn).toBeLessThan(70);
+    expect(sim.people.count).toBe(before + first.childrenBorn);
+    // Les nouveau-nés sont à la fin, sur la tuile de leur parent
+    for (let i = before; i < sim.people.count; i++) {
+      expect(sim.people.age[i]).toBe(0);
+      expect(sim.people.x[i]).toBe(8.5);
+    }
+    // Les parents attendent avant le prochain enfant, et restent rassasiés
+    for (let i = 0; i < PARENTS; i++) {
+      if (sim.people.birthCooldown[i] > 0) expect(sim.people.hunger[i]).toBe(0);
+    }
+    for (let i = PARENTS; i < before; i++) {
+      expect(sim.people.birthCooldown[i]).toBe(0);
+    }
+
+    // Une deuxième bénédiction : seuls ceux qui n'ont pas encore eu d'enfant peuvent en avoir un
+    const second = sim.bless(8, 8);
+    let parents = 0;
+    for (let i = 0; i < PARENTS; i++) {
+      if (sim.people.birthCooldown[i] > 0) parents++;
+    }
+    expect(second.childrenBorn).toBeGreaterThan(0);
+    expect(parents).toBe(first.childrenBorn + second.childrenBorn);
   });
 });
