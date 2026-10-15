@@ -5,8 +5,9 @@ import { MapRenderer } from './render/map-renderer';
 import { drawPeople } from './render/people-renderer';
 import { drawVillages } from './render/village-renderer';
 import { Effects } from './render/effects';
+import { FireRenderer } from './render/fire-renderer';
 import { SimClock, TICKS_PER_DAY, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
-import { LIGHTNING_RADIUS, Simulation } from './sim/simulation';
+import { FIRE_RADIUS, LIGHTNING_RADIUS, Simulation } from './sim/simulation';
 import { HAND, PowerKind, type Tool } from './tool';
 import { applyBrush } from './world/brushes';
 import { generateWorld } from './world/generator';
@@ -52,14 +53,13 @@ export class Engine {
   private readonly input: PointerInput;
   private world!: World;
   private mapRenderer!: MapRenderer;
+  private fireRenderer!: FireRenderer;
   private simulation!: Simulation;
   private frameId = 0;
   private lastFrameTime = 0;
 
   /** Outil tenu par le dieu : main, pinceau ou pouvoir */
   private tool: Tool = HAND;
-  /** État du clic à l'image précédente, pour repérer le moment exact du clic */
-  private wasPressed = false;
   private readonly effects = new Effects();
   private brushRadius = 4;
 
@@ -87,6 +87,7 @@ export class Engine {
   newWorld(seed: number = Random.newSeed()): void {
     this.world = generateWorld({ width: WORLD_WIDTH, height: WORLD_HEIGHT, seed });
     this.mapRenderer = new MapRenderer(this.world);
+    this.fireRenderer = new FireRenderer(this.world);
     this.simulation = new Simulation(this.world, seed);
     this.simulation.spawnInitialGroup();
     this.clock.reset();
@@ -173,14 +174,13 @@ export class Engine {
 
   /** Fait évoluer le monde : outil du dieu, puis simulation, effets et résumé */
   private update(dt: number): void {
-    // Vrai seulement à l'image où le clic commence (et pas tant qu'il est maintenu)
-    const pressed = this.input.painting && !this.wasPressed;
-    this.wasPressed = this.input.painting;
+    // Vrai seulement à l'image qui suit le début du clic (et pas tant qu'il est maintenu)
+    const clicked = this.input.takeClick();
 
     // Les outils suivent le temps réel : le dieu agit même en pause
     if (this.tool.type === 'brush') {
       this.paint(dt);
-    } else if (this.tool.type === 'power' && pressed) {
+    } else if (this.tool.type === 'power' && clicked) {
       this.castPower(this.tool.power);
     }
     this.effects.update(dt);
@@ -189,6 +189,13 @@ export class Engine {
     for (let i = 0; i < ticks; i++) {
       this.simulateTick();
     }
+    // Des forêts ont brûlé : on redessine seulement la zone touchée
+    const burnt = this.simulation.takeDirtyRect();
+    if (burnt) {
+      this.mapRenderer.redrawRect(burnt);
+    }
+    // Les flammes scintillent à chaque image, même en pause
+    this.fireRenderer.update(this.simulation.fire, (x, y) => this.effects.addSmoke(x, y));
 
     this.summaryTimer += dt;
     if (this.summaryTimer >= SUMMARY_INTERVAL) {
@@ -215,6 +222,9 @@ export class Engine {
       case PowerKind.Lightning:
         this.simulation.strikeLightning(tile.x, tile.y);
         this.effects.addLightning(tile.x + 0.5, tile.y + 0.5);
+        break;
+      case PowerKind.Fire:
+        this.simulation.igniteFire(tile.x, tile.y);
         break;
     }
   }
@@ -256,6 +266,7 @@ export class Engine {
     const ox = Math.round(origin.x);
     const oy = Math.round(origin.y);
     this.mapRenderer.draw(ctx, ox, oy, camera.zoom);
+    this.fireRenderer.draw(ctx, ox, oy, camera.zoom);
     drawVillages(ctx, this.simulation.villages, ox, oy, camera.zoom);
     drawPeople(ctx, this.simulation.people, ox, oy, camera.zoom);
     this.effects.draw(ctx, ox, oy, camera.zoom);
@@ -275,7 +286,7 @@ export class Engine {
     const { ctx, camera } = this;
     const center = camera.worldToScreen(tile.x + 0.5, tile.y + 0.5);
     const isPower = this.tool.type === 'power';
-    const tiles = isPower ? LIGHTNING_RADIUS : this.brushRadius + 0.5;
+    const tiles = this.tool.type === 'power' ? powerRadius(this.tool.power) : this.brushRadius + 0.5;
     // Au moins 4 pixels, pour rester visible quand on dézoome
     const radius = Math.max(4, tiles * camera.zoom);
 
@@ -291,5 +302,16 @@ export class Engine {
     ctx.strokeStyle = isPower ? 'rgba(170, 200, 255, 0.95)' : 'rgba(255, 255, 255, 0.9)';
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+}
+
+/** Rayon d'action d'un pouvoir, en tuiles, pour le cercle d'aperçu */
+function powerRadius(power: PowerKind): number {
+  switch (power) {
+    case PowerKind.Lightning:
+      return LIGHTNING_RADIUS;
+    case PowerKind.Fire:
+      // + 0.5 : le cercle entoure les tuiles touchées au lieu de passer par leur centre
+      return FIRE_RADIUS + 0.5;
   }
 }

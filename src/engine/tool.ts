@@ -4,6 +4,8 @@ import { BrushKind } from './world/brushes';
 export enum PowerKind {
   /** La foudre de Zeus : foudroie les mortels sous le point d'impact */
   Lightning,
+  /** L'incendie : met le feu à la végétation, qui se propage de proche en proche */
+  Fire,
 }
 
 /**

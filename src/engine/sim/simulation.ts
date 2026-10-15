@@ -1,6 +1,8 @@
 import { Random } from '../core/random';
+import type { TileRect } from '../world/brushes';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
+import { Fire } from './fire';
 import { People } from './people';
 import { TICKS_PER_DAY, TICKS_PER_YEAR } from './sim-clock';
 import { Villages } from './villages';
@@ -51,6 +53,25 @@ const PARTNER_DISTANCE = 2;
 /** Rayon de la foudre, en tuiles, mesuré depuis le centre de la tuile frappée */
 export const LIGHTNING_RADIUS = 1.5;
 
+/** Rayon du pouvoir « Incendie », en tuiles : la tuile visée et ses 4 voisines */
+export const FIRE_RADIUS = 1;
+
+/** Humidité d'une forêt après l'incendie : sous FOREST_MOISTURE, elle redevient prairie */
+export const BURNT_MOISTURE = 0.35;
+
+/**
+ * Ce qu'a fait un pouvoir. Il servira à calculer la foi gagnée ou perdue (v0.5)
+ * et à écrire les mythes du Codex (v0.6).
+ */
+export interface PowerResult {
+  /** Mortels tués sur le coup */
+  victims: number;
+  /** Tuiles enflammées */
+  tilesIgnited: number;
+  /** Village qui a perdu le plus d'habitants, ou -1 */
+  mostAffectedVillage: number;
+}
+
 /** Un adulte sans village regarde autour de lui environ une fois par jour */
 const VILLAGE_CHECK_CHANCE = 1 / TICKS_PER_DAY;
 
@@ -98,7 +119,13 @@ export class Simulation {
   readonly villages = new Villages();
   /** Nourriture disponible sur chaque tuile, en portions (même index que la grille du monde) */
   readonly food: Float32Array;
+  readonly fire: Fire;
   private readonly random: Random;
+
+  /** Zone de la carte dont le terrain a changé depuis le dernier dessin (forêts brûlées), ou null */
+  private dirty: TileRect | null = null;
+  /** Créée une seule fois, pour ne pas fabriquer une nouvelle fonction à chaque pas */
+  private readonly burnedOut = (i: number): void => this.onBurnedOut(i);
 
   constructor(
     private readonly world: World,
@@ -112,6 +139,7 @@ export class Simulation {
     for (let i = 0; i < world.size; i++) {
       this.food[i] = this.foodCapacity(i);
     }
+    this.fire = new Fire(world);
   }
 
   /**
@@ -144,6 +172,11 @@ export class Simulation {
     return this.world.inBounds(x, y) && TERRAIN_INFO[this.world.getTerrain(x, y)].walkable;
   }
 
+  /** Vrai si un mortel accepte d'avancer sur la tuile (x, y) : praticable et pas en feu */
+  canStepOn(x: number, y: number): boolean {
+    return this.isWalkable(x, y) && this.fire.burning[this.world.index(x, y)] === 0;
+  }
+
   /** Vrai si l'habitant i a faim */
   isHungry(i: number): boolean {
     return this.people.hunger[i] >= HUNGRY_AT;
@@ -152,6 +185,7 @@ export class Simulation {
   /** Un pas de simulation */
   tick(): void {
     this.growFood();
+    this.fire.tick(this.random, this.burnedOut);
 
     const people = this.people;
     // À l'envers, car remove() déplace le dernier habitant à la place du retiré
@@ -161,6 +195,12 @@ export class Simulation {
 
       // Le dieu a pu changer le terrain : un mortel sous l'eau ou dans la roche périt
       if (!this.isWalkable(x, y)) {
+        this.removePerson(i);
+        continue;
+      }
+
+      // Pris dans les flammes
+      if (this.fire.burning[this.world.index(x, y)] > 0) {
         this.removePerson(i);
         continue;
       }
@@ -197,12 +237,46 @@ export class Simulation {
 
   /**
    * La foudre de Zeus frappe la tuile (x, y) : les mortels à LIGHTNING_RADIUS tuiles au plus
-   * meurent, et la nourriture des tuiles touchées brûle. Renvoie le nombre de victimes.
+   * meurent, la nourriture des tuiles touchées brûle, et la tuile frappée prend feu si elle le peut.
    */
-  strikeLightning(x: number, y: number): number {
+  strikeLightning(x: number, y: number): PowerResult {
+    const result = this.killAround(x, y, LIGHTNING_RADIUS);
+
+    this.forEachTileAround(x, y, LIGHTNING_RADIUS, (i) => {
+      this.food[i] = 0;
+    });
+    if (this.fire.ignite(this.world.index(x, y))) {
+      result.tilesIgnited = 1;
+    }
+    return result;
+  }
+
+  /** Le pouvoir « Incendie » : met le feu à la tuile (x, y) et à ses voisines, si elles peuvent brûler */
+  igniteFire(x: number, y: number): PowerResult {
+    const result: PowerResult = { victims: 0, tilesIgnited: 0, mostAffectedVillage: -1 };
+    this.forEachTileAround(x, y, FIRE_RADIUS, (i) => {
+      if (this.fire.ignite(i)) result.tilesIgnited++;
+    });
+    return result;
+  }
+
+  /** Renvoie la zone dont le terrain a changé depuis le dernier appel (puis l'oublie), ou null */
+  takeDirtyRect(): TileRect | null {
+    const rect = this.dirty;
+    this.dirty = null;
+    return rect;
+  }
+
+  /**
+   * Tue les mortels à `radius` tuiles au plus du centre de la tuile (x, y).
+   * Renvoie le nombre de victimes et le village le plus touché.
+   */
+  private killAround(x: number, y: number, radius: number): PowerResult {
     const cx = x + 0.5;
     const cy = y + 0.5;
-    const radiusSquared = LIGHTNING_RADIUS * LIGHTNING_RADIUS;
+    const radiusSquared = radius * radius;
+    // Victimes par village, pour trouver le plus touché (une Map suffit : c'est rare)
+    const losses = new Map<number, number>();
 
     let victims = 0;
     const p = this.people;
@@ -211,21 +285,60 @@ export class Simulation {
       const dx = p.x[i] - cx;
       const dy = p.y[i] - cy;
       if (dx * dx + dy * dy <= radiusSquared) {
+        const village = p.village[i];
+        if (village >= 0) losses.set(village, (losses.get(village) ?? 0) + 1);
         this.removePerson(i);
         victims++;
       }
     }
 
-    const r = Math.ceil(LIGHTNING_RADIUS);
+    let mostAffectedVillage = -1;
+    let mostLosses = 0;
+    for (const [village, count] of losses) {
+      if (count > mostLosses) {
+        mostAffectedVillage = village;
+        mostLosses = count;
+      }
+    }
+    return { victims, tilesIgnited: 0, mostAffectedVillage };
+  }
+
+  /** Appelle `action(i)` pour chaque tuile i du monde à `radius` tuiles au plus de (x, y) */
+  private forEachTileAround(
+    x: number,
+    y: number,
+    radius: number,
+    action: (i: number) => void,
+  ): void {
+    const r = Math.ceil(radius);
     for (let ty = y - r; ty <= y + r; ty++) {
       for (let tx = x - r; tx <= x + r; tx++) {
         if (!this.world.inBounds(tx, ty)) continue;
-        if ((tx - x) ** 2 + (ty - y) ** 2 <= radiusSquared) {
-          this.food[this.world.index(tx, ty)] = 0;
+        if ((tx - x) ** 2 + (ty - y) ** 2 <= radius * radius) {
+          action(this.world.index(tx, ty));
         }
       }
     }
-    return victims;
+  }
+
+  /** Une tuile vient de finir de brûler : plus de nourriture, et la forêt redevient prairie */
+  private onBurnedOut(i: number): void {
+    this.food[i] = 0;
+    if (this.world.terrain[i] === Terrain.Forest) {
+      this.world.moisture[i] = BURNT_MOISTURE;
+      this.world.refreshTerrain(i);
+      this.markDirty(i);
+    }
+  }
+
+  /** Agrandit la zone à redessiner pour inclure la tuile i */
+  private markDirty(i: number): void {
+    const x = i % this.world.width;
+    const y = Math.floor(i / this.world.width);
+    const d = this.dirty;
+    this.dirty = d
+      ? { x0: Math.min(d.x0, x), y0: Math.min(d.y0, y), x1: Math.max(d.x1, x), y1: Math.max(d.y1, y) }
+      : { x0: x, y0: y, x1: x, y1: y };
   }
 
   /** Vrai si l'habitant i est en âge d'avoir des enfants */
@@ -413,11 +526,11 @@ export class Simulation {
     // Un petit pas en ligne droite vers la destination
     const nextX = p.x[i] + (dx / distance) * WALK_SPEED;
     const nextY = p.y[i] + (dy / distance) * WALK_SPEED;
-    if (this.isWalkable(Math.floor(nextX), Math.floor(nextY))) {
+    if (this.canStepOn(Math.floor(nextX), Math.floor(nextY))) {
       p.x[i] = nextX;
       p.y[i] = nextY;
     } else {
-      // Eau ou montagne sur le chemin : il part ailleurs, au hasard.
+      // Eau, montagne ou feu sur le chemin : il part ailleurs, au hasard.
       // (Viser à nouveau la même nourriture le bloquerait contre l'obstacle.)
       this.wander(i);
     }

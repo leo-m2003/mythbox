@@ -7,6 +7,7 @@ import {
   BIRTH_COOLDOWN,
   BIRTH_HUNGER,
   FERTILE_UNTIL,
+  FIRE_RADIUS,
   FOOD_REGROWTH,
   HUNGRY_AT,
   INITIAL_PEOPLE,
@@ -429,7 +430,7 @@ describe('Simulation', () => {
     sim.people.add(20, 20); // loin : épargné
 
     expect(LIGHTNING_RADIUS).toBe(1.5);
-    expect(sim.strikeLightning(5, 5)).toBe(2);
+    expect(sim.strikeLightning(5, 5).victims).toBe(2);
 
     expect(sim.people.count).toBe(2);
     const survivors = [sim.people.x[0], sim.people.x[1]].sort((a, b) => a - b);
@@ -460,5 +461,73 @@ describe('Simulation', () => {
 
     expect(sim.villages.population[v]).toBe(1);
     expect(sim.villages.count).toBe(1);
+  });
+
+  it('dit quel village la foudre a le plus touché', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const a = sim.villages.found(2, 2);
+    const b = sim.villages.found(25, 25);
+    // 1 victime de a et 2 de b, toutes sur la tuile frappée
+    for (const v of [a, b, b]) {
+      const i = addAdult(sim, 5, 5);
+      sim.people.village[i] = v;
+      sim.villages.join(v);
+    }
+
+    const result = sim.strikeLightning(5, 5);
+
+    expect(result.victims).toBe(3);
+    expect(result.mostAffectedVillage).toBe(b);
+  });
+
+  it('allume un incendie si la foudre tombe sur la végétation, pas sur la plage', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    expect(sim.strikeLightning(5, 5).tilesIgnited).toBe(1);
+    expect(sim.fire.count).toBe(1);
+
+    const beach = new Simulation(sandWorld(), 1);
+    expect(beach.strikeLightning(5, 5).tilesIgnited).toBe(0);
+    expect(beach.fire.count).toBe(0);
+  });
+
+  it('le pouvoir Incendie embrase la tuile visée et ses 4 voisines, sauf l’eau', () => {
+    expect(FIRE_RADIUS).toBe(1);
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    expect(sim.igniteFire(5, 5).tilesIgnited).toBe(5);
+
+    // Au bord de la rivière (x = 16) : la voisine de droite est de l'eau
+    const riverside = new Simulation(grassWorldWithRiver(), 1);
+    expect(riverside.igniteFire(15, 5).tilesIgnited).toBe(4);
+  });
+
+  it('tue les mortels pris dans les flammes', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+    addAdult(sim, 5, 5);
+    addAdult(sim, 25, 25);
+
+    sim.fire.ignite(world.index(5, 5));
+    sim.tick();
+
+    expect(sim.people.count).toBe(1);
+    expect(sim.people.x[0]).toBe(25.5);
+  });
+
+  it('une forêt brûlée redevient prairie, sans nourriture, et la zone est à redessiner', () => {
+    const world = sandWorld(5, 5);
+    const tile = world.index(5, 5);
+    world.moisture[tile] = 0.8;
+    world.refreshTerrain(tile);
+    expect(world.getTerrain(5, 5)).toBe(Terrain.Forest);
+    const sim = new Simulation(world, 1);
+
+    sim.fire.ignite(tile);
+    runUntil(sim, () => sim.fire.count === 0);
+
+    expect(world.getTerrain(5, 5)).toBe(Terrain.Grass);
+    expect(sim.food[tile]).toBe(0);
+    expect(sim.takeDirtyRect()).toEqual({ x0: 5, y0: 5, x1: 5, y1: 5 });
+    // Déjà redessinée : plus rien à faire
+    expect(sim.takeDirtyRect()).toBeNull();
   });
 });
