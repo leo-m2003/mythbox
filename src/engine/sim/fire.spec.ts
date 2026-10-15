@@ -21,11 +21,18 @@ function sandWorldWithForest(length: number): World {
   return world;
 }
 
-/** Fait brûler `ticks` pas, et renvoie les tuiles qui ont fini de brûler, dans l'ordre */
-function run(fire: Fire, random: Random, ticks: number): number[] {
+/**
+ * Fait brûler `ticks` pas, et renvoie les tuiles qui ont fini de brûler, dans l'ordre.
+ * Comme dans la simulation, une forêt brûlée redevient prairie.
+ */
+function run(world: World, fire: Fire, random: Random, ticks: number): number[] {
   const burnedOut: number[] = [];
   for (let t = 0; t < ticks; t++) {
-    fire.tick(random, (i) => burnedOut.push(i));
+    fire.tick(random, (i) => {
+      burnedOut.push(i);
+      world.moisture[i] = 0.3;
+      world.refreshTerrain(i);
+    });
   }
   return burnedOut;
 }
@@ -56,23 +63,27 @@ describe('Fire', () => {
 
   it('se consume en burnTicks pas, puis laisse la terre brûlée pendant SCORCH_TICKS pas', () => {
     const world = sandWorldWithForest(1);
+    const tile = world.index(2, 5);
+    // Une prairie : elle reste prairie en brûlant, plus simple à suivre
+    world.moisture[tile] = 0.3;
+    world.refreshTerrain(tile);
+    expect(world.getTerrain(2, 5)).toBe(Terrain.Grass);
     const fire = new Fire(world);
     const random = new Random(1);
-    const tile = world.index(2, 5);
-    const burnTicks = TERRAIN_INFO[Terrain.Forest].burnTicks;
+    const burnTicks = TERRAIN_INFO[Terrain.Grass].burnTicks;
     fire.ignite(tile);
 
-    expect(run(fire, random, burnTicks - 1)).toEqual([]);
+    expect(run(world, fire, random, burnTicks - 1)).toEqual([]);
     expect(fire.count).toBe(1);
 
-    expect(run(fire, random, 1)).toEqual([tile]);
+    expect(run(world, fire, random, 1)).toEqual([tile]);
     expect(fire.count).toBe(0);
     expect(fire.scorched[tile]).toBe(SCORCH_TICKS);
     expect(fire.scorchedCount).toBe(1);
     // Il n'y a plus rien à brûler
     expect(fire.ignite(tile)).toBe(false);
 
-    run(fire, random, SCORCH_TICKS);
+    run(world, fire, random, SCORCH_TICKS);
     expect(fire.scorchedCount).toBe(0);
     expect(fire.ignite(tile)).toBe(true);
   });
@@ -82,7 +93,7 @@ describe('Fire', () => {
     const fire = new Fire(world);
     fire.ignite(world.index(2, 5));
 
-    const burnedOut = run(fire, new Random(1), 2000);
+    const burnedOut = run(world, fire, new Random(1), 2000);
 
     // Toute la bande a brûlé, et rien d'autre
     expect(burnedOut.length).toBe(10);
@@ -98,10 +109,29 @@ describe('Fire', () => {
 
     world.elevation[tile] = 0.2;
     world.refreshTerrain(tile);
-    const burnedOut = run(fire, new Random(1), 1);
+    const burnedOut = run(world, fire, new Random(1), 1);
 
     expect(burnedOut).toEqual([]);
     expect(fire.count).toBe(0);
     expect(fire.scorchedCount).toBe(0);
+  });
+
+  it('la terre brûlée replantée en forêt par le dieu n’est plus brûlée', () => {
+    const world = sandWorldWithForest(1);
+    const tile = world.index(2, 5);
+    world.moisture[tile] = 0.3;
+    world.refreshTerrain(tile);
+    const fire = new Fire(world);
+    const random = new Random(1);
+    fire.ignite(tile);
+    run(world, fire, random, TERRAIN_INFO[Terrain.Grass].burnTicks);
+    expect(fire.scorchedCount).toBe(1);
+
+    world.moisture[tile] = 0.8;
+    world.refreshTerrain(tile);
+    run(world, fire, random, 1);
+
+    expect(fire.scorchedCount).toBe(0);
+    expect(fire.scorched[tile]).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Terrain } from '../world/terrain';
 import { World } from '../world/world';
+import { SCORCH_TICKS } from './fire';
 import { TICKS_PER_YEAR } from './sim-clock';
 import {
   ADULT_AGE,
@@ -529,5 +530,22 @@ describe('Simulation', () => {
     expect(sim.takeDirtyRect()).toEqual({ x0: 5, y0: 5, x1: 5, y1: 5 });
     // Déjà redessinée : plus rien à faire
     expect(sim.takeDirtyRect()).toBeNull();
+  });
+
+  it('rien ne repousse sur la terre brûlée pendant SCORCH_TICKS pas', () => {
+    const world = sandWorld(5, 5);
+    const tile = world.index(5, 5);
+    const sim = new Simulation(world, 1);
+
+    sim.fire.ignite(tile);
+    runUntil(sim, () => sim.fire.count === 0);
+    expect(sim.food[tile]).toBe(0);
+
+    for (let t = 0; t < SCORCH_TICKS; t++) sim.tick();
+    expect(sim.food[tile]).toBe(0);
+
+    // La terre a récupéré : la prairie repousse
+    sim.tick();
+    expect(sim.food[tile]).toBeGreaterThan(0);
   });
 });

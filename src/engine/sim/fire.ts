@@ -1,9 +1,12 @@
 import { Random } from '../core/random';
-import { TERRAIN_INFO } from '../world/terrain';
+import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
 import { TICKS_PER_YEAR } from './sim-clock';
 
-/** Après un incendie, la tuile ne peut plus brûler pendant 2 ans (il n'y a plus rien à brûler) */
+/**
+ * Après un incendie, la terre reste brûlée pendant 2 ans : rien n'y brûle ni n'y repousse,
+ * puis la prairie revient.
+ */
 export const SCORCH_TICKS = 2 * TICKS_PER_YEAR;
 
 /** Inflammabilité et durée de combustion par terrain, en tableaux typés (lus pour chaque tuile en feu) */
@@ -66,7 +69,13 @@ export class Fire {
 
     for (let i = 0; i < burning.length; i++) {
       if (scorched[i] > 0) {
-        scorched[i]--;
+        const terrain = world.terrain[i];
+        if (FLAMMABILITY[terrain] === 0 || terrain === Terrain.Forest) {
+          // Le dieu a noyé ou replanté la terre brûlée : elle n'est plus brûlée
+          scorched[i] = 0;
+        } else {
+          scorched[i]--;
+        }
         if (scorched[i] === 0) this.scorchedCount--;
       }
       if (burning[i] === 0) continue;

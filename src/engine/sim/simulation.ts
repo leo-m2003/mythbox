@@ -480,11 +480,16 @@ export class Simulation {
     return FOOD_CAPACITY[this.world.terrain[i]];
   }
 
-  /** La nourriture repousse doucement, sans dépasser ce que le terrain peut porter */
+  /**
+   * La nourriture repousse doucement, sans dépasser ce que le terrain peut porter.
+   * Sur la terre brûlée, rien ne repousse tant qu'elle n'a pas récupéré.
+   */
   private growFood(): void {
     const food = this.food;
     const terrain = this.world.terrain;
+    const scorched = this.fire.scorched;
     for (let i = 0; i < food.length; i++) {
+      if (scorched[i] > 0) continue;
       // Un pinceau a pu réduire la capacité (forêt défrichée, prairie inondée…)
       food[i] = Math.min(FOOD_CAPACITY[terrain[i]], food[i] + FOOD_REGROWTH);
     }

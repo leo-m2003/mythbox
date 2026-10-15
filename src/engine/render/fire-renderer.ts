@@ -5,6 +5,13 @@ import { World } from '../world/world';
 /** Chance, à chaque image, qu'une tuile en feu lâche une volute de fumée */
 const SMOKE_CHANCE = 0.03;
 
+/** Part de SCORCH_TICKS pendant laquelle l'herbe repousse : la terre brûlée s'efface peu à peu */
+const REGROWTH_PART = 0.25;
+/** Part de SCORCH_TICKS, juste après le feu, pendant laquelle des braises rougeoient encore */
+const EMBERS_PART = 0.1;
+/** Chance, à chaque image, qu'une tuile encore chaude montre une braise */
+const EMBER_CHANCE = 0.02;
+
 /**
  * Dessine les incendies par-dessus la carte : flammes et terre brûlée.
  * Même principe que MapRenderer : un petit canvas caché (1 pixel = 1 tuile),
@@ -59,17 +66,41 @@ export class FireRenderer {
           onSmoke((i % width) + 0.5, Math.floor(i / width) + 0.5);
         }
       } else if (fire.scorched[i] > 0) {
-        // Terre brûlée : un voile sombre qui s'estompe à mesure que la végétation repousse
-        data[p] = 30;
-        data[p + 1] = 22;
-        data[p + 2] = 16;
-        data[p + 3] = 40 + 150 * (fire.scorched[i] / SCORCH_TICKS);
+        this.writeScorched(data, p, i, fire.scorched[i] / SCORCH_TICKS);
       } else {
         data[p + 3] = 0;
       }
     }
     this.bufferCtx.putImageData(this.image, 0, 0);
     this.visible = true;
+  }
+
+  /**
+   * Terre brûlée, selon `left` : 1 juste après le feu, 0 quand la prairie a repoussé.
+   * Elle passe d'une cendre brun-orangé à une terre sèche ocre, puis s'efface pour laisser
+   * réapparaître l'herbe.
+   */
+  private writeScorched(data: Uint8ClampedArray, p: number, i: number, left: number): void {
+    // Encore chaude : quelques braises qui rougeoient au hasard
+    if (left > 1 - EMBERS_PART && this.random.chance(EMBER_CHANCE)) {
+      data[p] = 255;
+      data[p + 1] = 110;
+      data[p + 2] = 30;
+      data[p + 3] = 255;
+      return;
+    }
+
+    // 0 = cendre fraîche, 1 = terre sèche (atteint au début de la repousse)
+    const dry = Math.min(1, (1 - left) / (1 - REGROWTH_PART));
+    // Une petite variation fixe par tuile, pour que la terre ne soit pas d'une seule couleur.
+    // (Un calcul sur l'index plutôt que le hasard : sinon, la terre scintillerait comme les flammes.)
+    const grain = ((Math.imul(i, 2654435761) >>> 24) - 128) / 10;
+    // Uint8ClampedArray : les valeurs hors de 0..255 sont ramenées dans l'intervalle
+    data[p] = 112 + 64 * dry + grain;
+    data[p + 1] = 48 + 92 * dry + grain;
+    data[p + 2] = 20 + 50 * dry + grain / 2;
+    // Opaque, puis de plus en plus transparent pendant la repousse
+    data[p + 3] = left > REGROWTH_PART ? 255 : (255 * left) / REGROWTH_PART;
   }
 
   draw(ctx: CanvasRenderingContext2D, offsetX: number, offsetY: number, scale: number): void {
