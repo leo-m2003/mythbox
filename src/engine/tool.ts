@@ -8,6 +8,8 @@ export enum PowerKind {
   Fire,
   /** La pluie : tant qu'on maintient le clic, elle éteint le feu et nourrit la terre */
   Rain,
+  /** Le séisme de Poséidon, « l'ébranleur de la terre » : ouvre une faille et secoue les mortels */
+  Quake,
 }
 
 /**

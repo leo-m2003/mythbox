@@ -44,6 +44,15 @@ const CLOUD_PUFFS = [
   [-0.8, 0.2, 0.22],
 ] as const;
 
+/** Durée de la secousse de l'écran, en secondes */
+const SHAKE_DURATION = 0.7;
+/** Amplitude de la secousse au début, en pixels */
+const SHAKE_PIXELS = 10;
+/** Durée de l'onde de choc qui s'élargit depuis l'épicentre, en secondes */
+const WAVE_DURATION = 0.8;
+/** Nuages de poussière soulevés par tuile de la zone du séisme */
+const DUST_PER_TILE = 0.4;
+
 interface Bolt {
   /** Points de la ligne brisée, en tuiles : x0, y0, x1, y1… */
   readonly points: Float32Array;
@@ -66,7 +75,14 @@ export class Effects {
   /** Dérive horizontale, en tuiles par seconde */
   private readonly smokeDrift = new Float32Array(MAX_SMOKE);
   private readonly smokeAge = new Float32Array(MAX_SMOKE);
+  /** 1 pour la poussière d'un séisme (brune), 0 pour la fumée d'un incendie (grise) */
+  private readonly smokeDust = new Uint8Array(MAX_SMOKE);
   private smokeCount = 0;
+
+  /** Secousse de l'écran : temps restant, en secondes */
+  private shakeLeft = 0;
+  /** Ondes de choc des séismes (il n'y en a que quelques-unes à la fois) */
+  private waves: { x: number; y: number; radius: number; age: number }[] = [];
 
   // La pluie : gouttes en tableaux typés, comme la fumée
   private readonly dropX = new Float32Array(MAX_DROPS);
@@ -111,6 +127,43 @@ export class Effects {
     this.smokeY[k] = y;
     this.smokeDrift[k] = this.random.range(0.1, 0.6);
     this.smokeAge[k] = 0;
+    this.smokeDust[k] = 0;
+  }
+
+  /**
+   * Un séisme d'épicentre (x, y) et de rayon `radius`, en tuiles :
+   * l'écran tremble, une onde de choc s'élargit, et la poussière se soulève.
+   */
+  addQuake(x: number, y: number, radius: number): void {
+    this.shakeLeft = SHAKE_DURATION;
+    this.waves.push({ x, y, radius, age: 0 });
+
+    const dust = Math.round(Math.PI * radius * radius * DUST_PER_TILE);
+    for (let n = 0; n < dust && this.smokeCount < MAX_SMOKE; n++) {
+      // Un point au hasard dans le disque (la racine carrée répartit les points uniformément)
+      const angle = this.random.range(0, Math.PI * 2);
+      const distance = radius * Math.sqrt(this.random.next());
+      const k = this.smokeCount++;
+      this.smokeX[k] = x + Math.cos(angle) * distance;
+      this.smokeY[k] = y + Math.sin(angle) * distance;
+      // La poussière part dans tous les sens, et certaines volutes naissent un peu plus tard
+      this.smokeDrift[k] = this.random.range(-0.6, 0.6);
+      this.smokeAge[k] = this.random.range(0, 0.6);
+      this.smokeDust[k] = 1;
+    }
+  }
+
+  /**
+   * Décalage de l'écran dû à la secousse, en pixels : à ajouter à la position du monde avant de le dessiner.
+   * Tiré au hasard à chaque image, de plus en plus faible.
+   */
+  shakeOffset(): { x: number; y: number } {
+    if (this.shakeLeft <= 0) return { x: 0, y: 0 };
+    const amplitude = SHAKE_PIXELS * (this.shakeLeft / SHAKE_DURATION);
+    return {
+      x: Math.round(this.random.range(-amplitude, amplitude)),
+      y: Math.round(this.random.range(-amplitude, amplitude)),
+    };
   }
 
   /**
@@ -154,6 +207,7 @@ export class Effects {
         this.smokeY[k] = this.smokeY[last];
         this.smokeDrift[k] = this.smokeDrift[last];
         this.smokeAge[k] = this.smokeAge[last];
+        this.smokeDust[k] = this.smokeDust[last];
         continue;
       }
       // Elle monte et le vent la pousse un peu vers la droite
@@ -162,6 +216,12 @@ export class Effects {
     }
 
     this.updateRain(dt);
+
+    this.shakeLeft = Math.max(0, this.shakeLeft - dt);
+    for (const wave of this.waves) {
+      wave.age += dt;
+    }
+    this.waves = this.waves.filter((wave) => wave.age < WAVE_DURATION);
   }
 
   private updateRain(dt: number): void {
@@ -188,6 +248,7 @@ export class Effects {
   }
 
   draw(ctx: CanvasRenderingContext2D, originX: number, originY: number, zoom: number): void {
+    this.drawWaves(ctx, originX, originY, zoom);
     this.drawSmoke(ctx, originX, originY, zoom);
     this.drawRain(ctx, originX, originY, zoom);
     this.drawCloud(ctx, originX, originY, zoom);
@@ -223,7 +284,26 @@ export class Effects {
     }
   }
 
-  /** La fumée : des disques gris qui grossissent et s'effacent en montant */
+  /** Les ondes de choc : des anneaux bruns qui s'élargissent jusqu'au bord du séisme et s'effacent */
+  private drawWaves(ctx: CanvasRenderingContext2D, originX: number, originY: number, zoom: number): void {
+    for (const wave of this.waves) {
+      // De 0 (le choc) à 1 (l'onde a atteint le bord)
+      const t = wave.age / WAVE_DURATION;
+      ctx.lineWidth = Math.max(2, zoom * 0.5 * (1 - t));
+      ctx.strokeStyle = `rgba(110, 80, 45, ${0.7 * (1 - t)})`;
+      ctx.beginPath();
+      ctx.arc(
+        originX + wave.x * zoom,
+        originY + wave.y * zoom,
+        Math.max(1, wave.radius * t * zoom),
+        0,
+        Math.PI * 2,
+      );
+      ctx.stroke();
+    }
+  }
+
+  /** La fumée (grise) et la poussière (brune) : des disques qui grossissent et s'effacent en montant */
   private drawSmoke(
     ctx: CanvasRenderingContext2D,
     originX: number,
@@ -234,7 +314,9 @@ export class Effects {
       // De 0 (vient de naître) à 1 (va disparaître)
       const t = this.smokeAge[k] / SMOKE_DURATION;
       const radius = Math.max(1.5, (0.4 + t * 0.8) * zoom);
-      ctx.fillStyle = `rgba(70, 66, 62, ${0.45 * (1 - t)})`;
+      ctx.fillStyle = this.smokeDust[k]
+        ? `rgba(150, 120, 85, ${0.5 * (1 - t)})`
+        : `rgba(70, 66, 62, ${0.45 * (1 - t)})`;
       ctx.beginPath();
       ctx.arc(originX + this.smokeX[k] * zoom, originY + this.smokeY[k] * zoom, radius, 0, Math.PI * 2);
       ctx.fill();

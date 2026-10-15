@@ -7,7 +7,7 @@ import { drawVillages } from './render/village-renderer';
 import { Effects } from './render/effects';
 import { FireRenderer } from './render/fire-renderer';
 import { SimClock, TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
-import { FIRE_RADIUS, LIGHTNING_RADIUS, RAIN_RADIUS, Simulation } from './sim/simulation';
+import { FIRE_RADIUS, LIGHTNING_RADIUS, QUAKE_RADIUS, RAIN_RADIUS, Simulation } from './sim/simulation';
 import { HAND, PowerKind, type Tool } from './tool';
 import { applyBrush } from './world/brushes';
 import { generateWorld } from './world/generator';
@@ -197,10 +197,10 @@ export class Engine {
     for (let i = 0; i < ticks; i++) {
       this.simulateTick();
     }
-    // Des forêts ont brûlé : on redessine seulement la zone touchée
-    const burnt = this.simulation.takeDirtyRect();
-    if (burnt) {
-      this.mapRenderer.redrawRect(burnt);
+    // Des forêts ont brûlé, ou un séisme a bouleversé le relief : on redessine seulement la zone touchée
+    const changed = this.simulation.takeDirtyRect();
+    if (changed) {
+      this.mapRenderer.redrawRect(changed);
     }
     // Les flammes scintillent à chaque image, même en pause
     this.fireRenderer.update(this.simulation.fire, (x, y) => this.effects.addSmoke(x, y));
@@ -233,6 +233,11 @@ export class Engine {
         break;
       case PowerKind.Fire:
         this.simulation.igniteFire(tile.x, tile.y);
+        break;
+      case PowerKind.Quake:
+        // Le relief change : la zone sera redessinée avec takeDirtyRect(), juste après
+        this.simulation.quake(tile.x, tile.y);
+        this.effects.addQuake(tile.x + 0.5, tile.y + 0.5, QUAKE_RADIUS);
         break;
     }
   }
@@ -278,10 +283,11 @@ export class Engine {
     ctx.fillStyle = BACKGROUND;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Position à l'écran du coin haut-gauche du monde
+    // Position à l'écran du coin haut-gauche du monde, secouée pendant un séisme
     const origin = camera.worldToScreen(0, 0);
-    const ox = Math.round(origin.x);
-    const oy = Math.round(origin.y);
+    const shake = this.effects.shakeOffset();
+    const ox = Math.round(origin.x) + shake.x;
+    const oy = Math.round(origin.y) + shake.y;
     this.mapRenderer.draw(ctx, ox, oy, camera.zoom);
     this.fireRenderer.draw(ctx, ox, oy, camera.zoom);
     drawVillages(ctx, this.simulation.villages, ox, oy, camera.zoom);
@@ -332,5 +338,7 @@ function powerRadius(power: PowerKind): number {
       return FIRE_RADIUS + 0.5;
     case PowerKind.Rain:
       return RAIN_RADIUS + 0.5;
+    case PowerKind.Quake:
+      return QUAKE_RADIUS + 0.5;
   }
 }

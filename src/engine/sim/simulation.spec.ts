@@ -16,6 +16,7 @@ import {
   MAX_VILLAGE_SIZE,
   MIN_FOUNDERS,
   PORTION_VALUE,
+  QUAKE_RADIUS,
   RAIN_FOOD,
   RAIN_RADIUS,
   Simulation,
@@ -635,5 +636,77 @@ describe('Simulation', () => {
     expect(result.victims).toBe(0);
     expect(result.mostAffectedVillage).toBe(b);
     expect(sim.people.count).toBe(3);
+  });
+
+  it('le séisme ouvre une faille à l’épicentre et ne touche pas au relief hors de sa zone', () => {
+    const world = grassWorldWithRiver();
+    const before = world.elevation.slice();
+    const terrainBefore = world.terrain.slice();
+    const sim = new Simulation(world, 1);
+    expect(QUAKE_RADIUS).toBe(6);
+
+    const result = sim.quake(8, 8);
+
+    // La faille passe toujours par l'épicentre : la prairie s'y enfonce sous le niveau de la mer
+    expect(world.elevation[world.index(8, 8)]).toBeLessThan(world.seaLevel);
+    expect(sim.isWalkable(8, 8)).toBe(false);
+    let changed = 0;
+    for (let y = 0; y < world.height; y++) {
+      for (let x = 0; x < world.width; x++) {
+        const i = world.index(x, y);
+        if (Math.hypot(x - 8, y - 8) > QUAKE_RADIUS + 1) {
+          expect(world.elevation[i]).toBe(before[i]);
+        }
+        if (world.terrain[i] !== terrainBefore[i]) changed++;
+      }
+    }
+    expect(result.terrainChanged).toBe(changed);
+    // La zone à redessiner : le séisme et une tuile de plus tout autour
+    expect(sim.takeDirtyRect()).toEqual({ x0: 1, y0: 1, x1: 15, y1: 15 });
+  });
+
+  it('le séisme tue ceux qui tombent dans la faille, et épargne ceux qui sont loin', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    for (let n = 0; n < 10; n++) {
+      addAdult(sim, 8, 8); // à l'épicentre : dans la faille
+      addAdult(sim, 25, 25); // loin
+    }
+
+    const result = sim.quake(8, 8);
+
+    expect(result.victims).toBe(10);
+    expect(sim.people.count).toBe(10);
+    for (let i = 0; i < sim.people.count; i++) {
+      expect(sim.people.x[i]).toBe(25.5);
+    }
+  });
+
+  it('le séisme tue plus près de l’épicentre qu’au bord', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    // Une moitié à 2 tuiles de l'épicentre, l'autre à 5 tuiles
+    for (let n = 0; n < 100; n++) {
+      addAdult(sim, 8, 10);
+      addAdult(sim, 8, 13);
+    }
+
+    sim.quake(8, 8);
+
+    let nearSurvivors = 0;
+    let farSurvivors = 0;
+    for (let i = 0; i < sim.people.count; i++) {
+      if (sim.people.y[i] === 10.5) nearSurvivors++;
+      else farSurvivors++;
+    }
+    expect(nearSurvivors).toBeLessThan(farSurvivors);
+    // Au bord, on meurt rarement
+    expect(farSurvivors).toBeGreaterThan(50);
+  });
+
+  it('le même séisme, sur le même monde avec la même graine, fait les mêmes dégâts', () => {
+    const a = grassWorldWithRiver();
+    const b = grassWorldWithRiver();
+    new Simulation(a, 7).quake(8, 8);
+    new Simulation(b, 7).quake(8, 8);
+    expect(a.elevation).toEqual(b.elevation);
   });
 });

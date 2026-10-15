@@ -71,9 +71,21 @@ export const RAIN_FOOD = 0.5;
 /** La pluie efface la terre brûlée en 10 secondes, au lieu de SCORCH_TICKS pas */
 export const RAIN_REGROWTH = SCORCH_TICKS / 10;
 
+/** Rayon du séisme, en tuiles */
+export const QUAKE_RADIUS = 6;
+
+/** Chance de mourir pour un mortel à l'épicentre ; elle baisse jusqu'à 0 au bord du séisme */
+export const QUAKE_DEADLINESS = 0.6;
+
+/** Secousse du relief : variation d'altitude au plus, à l'épicentre */
+export const QUAKE_JOLT = 0.05;
+
+/** Profondeur de la faille en son milieu (en altitude) ; elle diminue vers ses deux bouts */
+export const CRACK_DEPTH = 0.25;
+
 /**
- * Ce qu'a fait un pouvoir. Il servira à calculer la foi gagnée ou perdue (v0.5)
- * et à écrire les mythes du Codex (v0.6).
+ * Ce qu'a fait un pouvoir. Il servira à calculer la foi gagnée ou perdue (v0.6)
+ * et à écrire les mythes du Codex (v0.7).
  */
 export interface PowerResult {
   /** Mortels tués sur le coup */
@@ -84,16 +96,38 @@ export interface PowerResult {
   tilesExtinguished: number;
   /** Nourriture ajoutée, en portions */
   foodGiven: number;
+  /** Tuiles dont le terrain a changé (une prairie devenue eau, une colline devenue montagne…) */
+  terrainChanged: number;
   /**
-   * Village le plus touché, ou -1 : celui qui a perdu le plus d'habitants pour un pouvoir
-   * qui tue, celui qui a le plus d'habitants sous le pouvoir pour un bienfait
+   * Village le plus touché, ou -1 : celui qui a perdu le plus d'habitants si le pouvoir a tué,
+   * sinon celui qui a le plus d'habitants sous le pouvoir
    */
   mostAffectedVillage: number;
 }
 
+/** La clé qui a le plus grand nombre dans `counts`, ou -1 si `counts` est vide */
+function mostCounted(counts: Map<number, number>): number {
+  let best = -1;
+  let most = 0;
+  for (const [key, n] of counts) {
+    if (n > most) {
+      best = key;
+      most = n;
+    }
+  }
+  return best;
+}
+
 /** Un pouvoir qui n'a rien fait (encore) : chaque pouvoir part de là et le complète */
 function noEffect(): PowerResult {
-  return { victims: 0, tilesIgnited: 0, tilesExtinguished: 0, foodGiven: 0, mostAffectedVillage: -1 };
+  return {
+    victims: 0,
+    tilesIgnited: 0,
+    tilesExtinguished: 0,
+    foodGiven: 0,
+    terrainChanged: 0,
+    mostAffectedVillage: -1,
+  };
 }
 
 /** Un adulte sans village regarde autour de lui environ une fois par jour */
@@ -146,7 +180,7 @@ export class Simulation {
   readonly fire: Fire;
   private readonly random: Random;
 
-  /** Zone de la carte dont le terrain a changé depuis le dernier dessin (forêts brûlées), ou null */
+  /** Zone de la carte dont le terrain a changé depuis le dernier dessin (forêts brûlées, séismes), ou null */
   private dirty: TileRect | null = null;
   /** Créée une seule fois, pour ne pas fabriquer une nouvelle fonction à chaque pas */
   private readonly burnedOut = (i: number): void => this.onBurnedOut(i);
@@ -265,9 +299,10 @@ export class Simulation {
    */
   strikeLightning(x: number, y: number): PowerResult {
     const result = noEffect();
-    const killed = this.peopleAround(x, y, LIGHTNING_RADIUS, true);
-    result.victims = killed.count;
-    result.mostAffectedVillage = killed.mostPresentVillage;
+    // Personne n'échappe à la foudre
+    const struck = this.peopleAround(x, y, LIGHTNING_RADIUS, () => 1);
+    result.victims = struck.victims;
+    result.mostAffectedVillage = struck.mostAffectedVillage;
 
     this.forEachTileAround(x, y, LIGHTNING_RADIUS, (i) => {
       this.food[i] = 0;
@@ -295,7 +330,8 @@ export class Simulation {
    */
   rain(x: number, y: number, dt: number): PowerResult {
     const result = noEffect();
-    result.mostAffectedVillage = this.peopleAround(x, y, RAIN_RADIUS, false).mostPresentVillage;
+    // La pluie ne tue personne
+    result.mostAffectedVillage = this.peopleAround(x, y, RAIN_RADIUS, () => 0).mostAffectedVillage;
 
     const fire = this.fire;
     // Au moins un pas par image, sinon une image très courte ne ferait rien du tout
@@ -318,6 +354,45 @@ export class Simulation {
     return result;
   }
 
+  /**
+   * Le séisme frappe autour de la tuile (x, y) : une faille s'ouvre à travers l'épicentre,
+   * le relief tremble, et les mortels proches peuvent mourir (d'autant plus près du centre).
+   */
+  quake(x: number, y: number): PowerResult {
+    const result = noEffect();
+    const world = this.world;
+    // Le terrain d'avant, pour compter les tuiles qui ont changé
+    const before = new Map<number, number>();
+    this.forEachTileAround(x, y, QUAKE_RADIUS, (i) => before.set(i, world.terrain[i]));
+
+    this.openCrack(x, y);
+
+    // Le relief tremble : chaque tuile monte ou descend un peu, plus fort près de l'épicentre
+    this.forEachTileAround(x, y, QUAKE_RADIUS, (i) => {
+      const distance = Math.hypot((i % world.width) - x, Math.floor(i / world.width) - y);
+      const jolt = QUAKE_JOLT * (1 - distance / (QUAKE_RADIUS + 1));
+      world.elevation[i] = Math.min(1, Math.max(0, world.elevation[i] + this.random.range(-jolt, jolt)));
+      world.refreshTerrain(i);
+    });
+
+    for (const [i, terrain] of before) {
+      if (world.terrain[i] !== terrain) result.terrainChanged++;
+    }
+    // L'ombrage d'une tuile dépend de ses voisines : on redessine une tuile de plus tout autour
+    this.markDirtyAround(x, y, QUAKE_RADIUS + 1);
+
+    // Les mortels, une fois le sol bouleversé : ceux qui sont tombés dans la faille (l'eau)
+    // ou pris sous la roche meurent à coup sûr, les autres selon leur distance à l'épicentre
+    const shaken = this.peopleAround(x, y, QUAKE_RADIUS, (distance, person) =>
+      this.isWalkable(Math.floor(this.people.x[person]), Math.floor(this.people.y[person]))
+        ? QUAKE_DEADLINESS * (1 - distance / QUAKE_RADIUS)
+        : 1,
+    );
+    result.victims = shaken.victims;
+    result.mostAffectedVillage = shaken.mostAffectedVillage;
+    return result;
+  }
+
   /** Renvoie la zone dont le terrain a changé depuis le dernier appel (puis l'oublie), ou null */
   takeDirtyRect(): TileRect | null {
     const rect = this.dirty;
@@ -326,44 +401,48 @@ export class Simulation {
   }
 
   /**
-   * Compte les mortels à `radius` tuiles au plus du centre de la tuile (x, y), et les tue si `kill` est vrai.
-   * Renvoie leur nombre et le village le plus représenté parmi eux (-1 si aucun n'a de village).
+   * Les mortels à `radius` tuiles au plus du centre de la tuile (x, y) subissent un pouvoir.
+   * `deathChance(distance, person)` donne la chance de mourir du mortel n° person,
+   * à `distance` tuiles du centre (1 = mort certaine, 0 = épargné).
+   * Renvoie le nombre de victimes et le village le plus touché : celui qui a le plus de victimes,
+   * ou, s'il n'y en a aucune, celui qui a le plus d'habitants dans la zone (-1 si personne n'a de village).
    */
   private peopleAround(
     x: number,
     y: number,
     radius: number,
-    kill: boolean,
-  ): { count: number; mostPresentVillage: number } {
+    deathChance: (distance: number, person: number) => number,
+  ): { victims: number; mostAffectedVillage: number } {
     const cx = x + 0.5;
     const cy = y + 0.5;
     const radiusSquared = radius * radius;
-    // Mortels par village (une Map suffit : il n'y en a que quelques-uns sous un pouvoir)
-    const perVillage = new Map<number, number>();
+    // Habitants et victimes par village (une Map suffit : il n'y en a que quelques-uns sous un pouvoir)
+    const present = new Map<number, number>();
+    const losses = new Map<number, number>();
 
-    let count = 0;
+    let victims = 0;
     const p = this.people;
     // À l'envers, comme dans tick(), car on peut retirer des habitants
     for (let i = p.count - 1; i >= 0; i--) {
       const dx = p.x[i] - cx;
       const dy = p.y[i] - cy;
-      if (dx * dx + dy * dy <= radiusSquared) {
-        const village = p.village[i];
-        if (village >= 0) perVillage.set(village, (perVillage.get(village) ?? 0) + 1);
-        if (kill) this.removePerson(i);
-        count++;
+      const distanceSquared = dx * dx + dy * dy;
+      if (distanceSquared > radiusSquared) continue;
+
+      const village = p.village[i];
+      if (village >= 0) present.set(village, (present.get(village) ?? 0) + 1);
+
+      const chance = deathChance(Math.sqrt(distanceSquared), i);
+      // Pas de tirage quand l'issue est certaine : le hasard de la simulation n'est pas consommé
+      const dies = chance >= 1 || (chance > 0 && this.random.chance(chance));
+      if (dies) {
+        if (village >= 0) losses.set(village, (losses.get(village) ?? 0) + 1);
+        this.removePerson(i);
+        victims++;
       }
     }
 
-    let mostPresentVillage = -1;
-    let most = 0;
-    for (const [village, n] of perVillage) {
-      if (n > most) {
-        mostPresentVillage = village;
-        most = n;
-      }
-    }
-    return { count, mostPresentVillage };
+    return { victims, mostAffectedVillage: mostCounted(victims > 0 ? losses : present) };
   }
 
   /** Appelle `action(i)` pour chaque tuile i du monde à `radius` tuiles au plus de (x, y) */
@@ -392,6 +471,48 @@ export class Simulation {
       this.world.refreshTerrain(i);
       this.markDirty(i);
     }
+  }
+
+  /**
+   * Ouvre une faille à travers l'épicentre (x, y) : une ligne un peu sinueuse, longue de deux rayons,
+   * dont les tuiles s'enfoncent (le plus au milieu). Assez profonde, elle se remplit d'eau.
+   */
+  private openCrack(x: number, y: number): void {
+    const world = this.world;
+    const angle = this.random.range(0, Math.PI * 2);
+    // Une tuile n'est creusée qu'une fois, même si la ligne repasse dessus
+    const cracked = new Set<number>();
+
+    // On part du centre et on avance dans les deux sens, par demi-tuiles
+    for (const direction of [1, -1]) {
+      let px = x + 0.5;
+      let py = y + 0.5;
+      let heading = angle;
+      for (let step = 0; step <= QUAKE_RADIUS * 2; step++) {
+        const tx = Math.floor(px);
+        const ty = Math.floor(py);
+        if (world.inBounds(tx, ty)) {
+          const i = world.index(tx, ty);
+          if (!cracked.has(i)) {
+            cracked.add(i);
+            // step / 2 : la distance au centre en tuiles
+            const depth = CRACK_DEPTH * (1 - step / 2 / (QUAKE_RADIUS + 1));
+            world.elevation[i] = Math.max(0, world.elevation[i] - depth);
+          }
+        }
+        // La faille serpente un peu
+        heading += this.random.range(-0.35, 0.35);
+        px += Math.cos(heading) * 0.5 * direction;
+        py += Math.sin(heading) * 0.5 * direction;
+      }
+    }
+  }
+
+  /** Agrandit la zone à redessiner pour inclure le carré de côté 2 × radius autour de (x, y) */
+  private markDirtyAround(x: number, y: number, radius: number): void {
+    const w = this.world;
+    this.markDirty(w.index(Math.max(0, x - radius), Math.max(0, y - radius)));
+    this.markDirty(w.index(Math.min(w.width - 1, x + radius), Math.min(w.height - 1, y + radius)));
   }
 
   /** Agrandit la zone à redessiner pour inclure la tuile i */
