@@ -6,7 +6,7 @@ import { drawPeople } from './render/people-renderer';
 import { drawVillages } from './render/village-renderer';
 import { Effects } from './render/effects';
 import { FireRenderer } from './render/fire-renderer';
-import { SimClock, TICKS_PER_DAY, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
+import { SimClock, TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
 import { FIRE_RADIUS, LIGHTNING_RADIUS, Simulation } from './sim/simulation';
 import { HAND, PowerKind, type Tool } from './tool';
 import { applyBrush } from './world/brushes';
@@ -35,7 +35,9 @@ const SUMMARY_INTERVAL = 0.25;
 export interface WorldSummary {
   /** Année en cours, à partir de 1 */
   year: number;
-  /** Jour dans l'année, de 1 à 12 */
+  /** Mois dans l'année, de 1 à 12 */
+  month: number;
+  /** Jour dans le mois, de 1 à 10 */
   day: number;
   /** Nombre d'habitants vivants */
   population: number;
@@ -109,7 +111,8 @@ export class Engine {
     const tick = this.clock.tick;
     return {
       year: Math.floor(tick / TICKS_PER_YEAR) + 1,
-      day: Math.floor((tick % TICKS_PER_YEAR) / TICKS_PER_DAY) + 1,
+      month: Math.floor((tick % TICKS_PER_YEAR) / TICKS_PER_MONTH) + 1,
+      day: Math.floor((tick % TICKS_PER_MONTH) / TICKS_PER_DAY) + 1,
       population: this.simulation.people.count,
       villages: this.simulation.villages.count,
     };

@@ -4,7 +4,7 @@ import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
 import { Fire } from './fire';
 import { People } from './people';
-import { TICKS_PER_DAY, TICKS_PER_YEAR } from './sim-clock';
+import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 import { Villages } from './villages';
 
 /** Nombre d'habitants au début d'un monde */
@@ -19,14 +19,17 @@ export const WALK_SPEED = 0.15;
 /** Attente maximale entre deux promenades, en pas (3 secondes à x1) */
 const MAX_WAIT = 30;
 
-/** Faim à partir de laquelle un habitant cherche à manger (20 jours) */
-export const HUNGRY_AT = 200;
+/**
+ * Faim à partir de laquelle un habitant cherche à manger (2 mois).
+ * Une « portion » est donc une grosse réserve : la récolte d'une saison, pas un repas.
+ */
+export const HUNGRY_AT = 2 * TICKS_PER_MONTH;
 
-/** Faim à laquelle un habitant meurt (40 jours sans manger) */
-export const STARVATION = 400;
+/** Faim à laquelle un habitant meurt (4 mois sans manger) */
+export const STARVATION = 4 * TICKS_PER_MONTH;
 
 /** Faim effacée par une portion de nourriture */
-export const PORTION_VALUE = 200;
+export const PORTION_VALUE = 2 * TICKS_PER_MONTH;
 
 /** Âge adulte : à partir de 16 ans, on peut avoir des enfants */
 export const ADULT_AGE = 16 * TICKS_PER_YEAR;
@@ -45,7 +48,7 @@ const BIRTH_CHANCE = 1 / TICKS_PER_YEAR;
 export const BIRTH_COOLDOWN = 2 * TICKS_PER_YEAR;
 
 /** Un enfant fatigue : la faim du parent augmente d'autant */
-export const BIRTH_HUNGER = 100;
+export const BIRTH_HUNGER = TICKS_PER_MONTH;
 
 /** Distance maximale entre les deux adultes, en tuiles */
 const PARTNER_DISTANCE = 2;
@@ -92,10 +95,10 @@ export const MAX_VILLAGE_SIZE = 40;
 const LEAVE_CHANCE = 1 / TICKS_PER_YEAR;
 
 /**
- * Repousse de la nourriture, en portions par pas : une portion tous les 200 jours (environ 17 ans).
+ * Repousse de la nourriture, en portions par pas : une portion tous les 5 ans.
  * C'est elle qui fixe combien d'habitants l'île peut nourrir (voir le guide de l'étape 4).
  */
-export const FOOD_REGROWTH = 1 / 2000;
+export const FOOD_REGROWTH = 1 / (5 * TICKS_PER_YEAR);
 
 /**
  * Nourriture maximale par type de terrain, rangée dans un petit tableau typé.

@@ -20,10 +20,13 @@ export class People {
   readonly wait = new Uint8Array(MAX_PEOPLE);
   /** Faim, en pas de simulation depuis le dernier repas complet (0 = rassasié) */
   readonly hunger = new Uint16Array(MAX_PEOPLE);
-  /** Âge, en pas de simulation (120 pas = 1 an) */
-  readonly age = new Uint16Array(MAX_PEOPLE);
+  /**
+   * Âge, en pas de simulation (1 200 pas = 1 an).
+   * Uint32 : un Uint16 s'arrête à 65 535 pas, soit à peine 54 ans.
+   */
+  readonly age = new Uint32Array(MAX_PEOPLE);
   /** Âge auquel il mourra de vieillesse, en pas */
-  readonly lifespan = new Uint16Array(MAX_PEOPLE);
+  readonly lifespan = new Uint32Array(MAX_PEOPLE);
   /** Pas à attendre avant de pouvoir avoir un nouvel enfant */
   readonly birthCooldown = new Uint16Array(MAX_PEOPLE);
   /** Numéro de son village, ou -1 s'il n'en a pas */
@@ -48,9 +51,10 @@ export class People {
 
   /**
    * Ajoute un nouveau-né au centre de la tuile (tileX, tileY). Renvoie son numéro, ou -1 si c'est complet.
-   * Sans durée de vie précisée, il vit le maximum possible (65 535 pas, plus de 500 ans) : pratique pour les tests.
+   * Sans durée de vie précisée, il vit le maximum possible (plus de 4 milliards de pas, des millions d'années) :
+   * pratique pour les tests.
    */
-  add(tileX: number, tileY: number, lifespan = 0xffff): number {
+  add(tileX: number, tileY: number, lifespan = 0xffffffff): number {
     if (this.count >= MAX_PEOPLE) return -1;
 
     const i = this.count++;

@@ -1,13 +1,13 @@
 import { Random } from '../core/random';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
-import { TICKS_PER_YEAR } from './sim-clock';
+import { TICKS_PER_MONTH } from './sim-clock';
 
 /**
- * Après un incendie, la terre reste brûlée pendant 2 ans : rien n'y brûle ni n'y repousse,
- * puis la prairie revient.
+ * Après un incendie, la terre reste brûlée pendant 6 mois (1 minute à x1) :
+ * rien n'y brûle ni n'y repousse, puis la prairie revient.
  */
-export const SCORCH_TICKS = 2 * TICKS_PER_YEAR;
+export const SCORCH_TICKS = 6 * TICKS_PER_MONTH;
 
 /** Inflammabilité et durée de combustion par terrain, en tableaux typés (lus pour chaque tuile en feu) */
 const FLAMMABILITY = Float32Array.from(Object.values(TERRAIN_INFO).map((info) => info.flammability));

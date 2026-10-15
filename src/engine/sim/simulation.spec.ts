@@ -47,6 +47,20 @@ function sandWorld(grassX?: number, grassY?: number): World {
   return world;
 }
 
+/** Un îlot de prairie de 4 × 4 tuiles, de (4, 4) à (7, 7), au milieu de l'eau */
+function smallIsland(): World {
+  const world = new World(12, 12, 0, 0.38);
+  world.elevation.fill(0.2);
+  world.moisture.fill(0.3);
+  for (let y = 4; y < 8; y++) {
+    for (let x = 4; x < 8; x++) {
+      world.elevation[world.index(x, y)] = 0.5;
+    }
+  }
+  world.refreshAllTerrain();
+  return world;
+}
+
 /** Ajoute un adulte de 20 ans, rassasié et quasi immortel, sur la tuile (x, y) */
 function addAdult(sim: Simulation, x: number, y: number): number {
   const i = sim.people.add(x, y);
@@ -243,13 +257,15 @@ describe('Simulation', () => {
   });
 
   it('fait naître un enfant quand deux adultes rassasiés sont proches', () => {
-    const sim = new Simulation(grassWorldWithRiver(), 1);
+    // Un îlot de 4 × 4 tuiles : les deux adultes ne peuvent pas s'éloigner l'un de l'autre
+    const sim = new Simulation(smallIsland(), 1);
     addAdult(sim, 5, 5);
     addAdult(sim, 6, 5);
 
-    // Chacun a 1 chance sur 120 par pas : en 1000 pas, une naissance est quasi certaine
+    // Chacun a 1 chance sur 1 200 par pas, et l'autre doit être tout près à ce moment-là :
+    // on laisse jusqu'à 20 000 pas (moins de 17 ans, ils restent en âge d'avoir des enfants)
     let t = 0;
-    while (sim.people.count === 2 && t < 1000) {
+    while (sim.people.count === 2 && t < 20_000) {
       sim.tick();
       t++;
     }

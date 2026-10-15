@@ -31,8 +31,12 @@ export class GameService {
   /** Année en cours dans le monde */
   readonly year = this.yearState.asReadonly();
 
+  private readonly monthState = signal(1);
+  /** Mois dans l'année en cours */
+  readonly month = this.monthState.asReadonly();
+
   private readonly dayState = signal(1);
-  /** Jour dans l'année en cours */
+  /** Jour dans le mois en cours */
   readonly day = this.dayState.asReadonly();
 
   private readonly populationState = signal(0);
@@ -108,6 +112,7 @@ export class GameService {
   /** Recopie le résumé du moteur dans les signals (un signal inchangé ne redessine rien) */
   private applySummary(summary: WorldSummary): void {
     this.yearState.set(summary.year);
+    this.monthState.set(summary.month);
     this.dayState.set(summary.day);
     this.populationState.set(summary.population);
     this.villagesState.set(summary.villages);
