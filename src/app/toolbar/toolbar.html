@@ -1,30 +1,57 @@
-<div class="panel" role="toolbar" aria-label="Outils divins">
-  @for (tool of tools; track tool.key) {
-    <button
-      type="button"
-      class="tool"
-      [class.active]="game.tool() === tool.id"
-      [attr.aria-pressed]="game.tool() === tool.id"
-      [title]="tool.hint + ' (' + tool.key + ')'"
-      (click)="select(tool)"
-    >
-      <span>{{ tool.label }}</span>
-      <kbd>{{ tool.key }}</kbd>
-    </button>
-  }
+<!-- Un bouton d'outil, réutilisé dans chaque groupe -->
+<ng-template #toolButton let-tool>
+  <button
+    type="button"
+    class="tool"
+    [class.active]="game.tool() === tool.tool"
+    [attr.aria-pressed]="game.tool() === tool.tool"
+    [title]="tool.hint + ' (' + tool.key + ')'"
+    (click)="select(tool)"
+  >
+    <span>{{ tool.label }}</span>
+    <kbd>{{ tool.key }}</kbd>
+  </button>
+</ng-template>
 
-  <div class="size" [class.disabled]="game.tool() === null">
-    <label for="brush-size">
-      Taille <span class="value">{{ game.brushRadius() }}</span>
-    </label>
-    <input
-      id="brush-size"
-      type="range"
-      step="1"
-      [min]="minRadius"
-      [max]="maxRadius"
-      [value]="game.brushRadius()"
-      (input)="onRadiusInput($event)"
-    />
+<div class="panel" role="toolbar" aria-label="Outils divins">
+  <div class="group view">
+    <div class="group-body">
+      @for (tool of viewTools; track tool.key) {
+        <ng-container *ngTemplateOutlet="toolButton; context: { $implicit: tool }" />
+      }
+    </div>
+  </div>
+
+  <div class="group shape" role="group" aria-labelledby="shape-title">
+    <span class="group-title" id="shape-title">Façonner</span>
+    <div class="group-body">
+      @for (tool of shapeTools; track tool.key) {
+        <ng-container *ngTemplateOutlet="toolButton; context: { $implicit: tool }" />
+      }
+
+      <div class="size" [class.disabled]="game.tool().type !== 'brush'">
+        <label for="brush-size">
+          Taille <span class="value">{{ game.brushRadius() }}</span>
+        </label>
+        <input
+          id="brush-size"
+          type="range"
+          step="1"
+          [min]="minRadius"
+          [max]="maxRadius"
+          [value]="game.brushRadius()"
+          (input)="onRadiusInput($event)"
+        />
+      </div>
+    </div>
+  </div>
+
+  <div class="group power" role="group" aria-labelledby="power-title">
+    <span class="group-title" id="power-title">Pouvoirs</span>
+    <div class="group-body">
+      @for (tool of powerTools; track tool.key) {
+        <ng-container *ngTemplateOutlet="toolButton; context: { $implicit: tool }" />
+      }
+    </div>
   </div>
 </div>

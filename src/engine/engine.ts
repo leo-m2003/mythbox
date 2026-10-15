@@ -4,9 +4,11 @@ import { Camera, type Point } from './render/camera';
 import { MapRenderer } from './render/map-renderer';
 import { drawPeople } from './render/people-renderer';
 import { drawVillages } from './render/village-renderer';
+import { Effects } from './render/effects';
 import { SimClock, TICKS_PER_DAY, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
-import { Simulation } from './sim/simulation';
-import { applyBrush, BrushKind } from './world/brushes';
+import { LIGHTNING_RADIUS, Simulation } from './sim/simulation';
+import { HAND, PowerKind, type Tool } from './tool';
+import { applyBrush } from './world/brushes';
 import { generateWorld } from './world/generator';
 import { World } from './world/world';
 
@@ -54,8 +56,11 @@ export class Engine {
   private frameId = 0;
   private lastFrameTime = 0;
 
-  /** Pinceau actif, ou null pour l'outil « main » */
-  private activeBrush: BrushKind | null = null;
+  /** Outil tenu par le dieu : main, pinceau ou pouvoir */
+  private tool: Tool = HAND;
+  /** État du clic à l'image précédente, pour repérer le moment exact du clic */
+  private wasPressed = false;
+  private readonly effects = new Effects();
   private brushRadius = 4;
 
   private readonly clock = new SimClock();
@@ -116,10 +121,10 @@ export class Engine {
     }
   }
 
-  /** Choisit le pinceau actif, ou null pour l'outil « main » */
-  setBrush(kind: BrushKind | null): void {
-    this.activeBrush = kind;
-    this.input.setLeftButtonPans(kind === null);
+  /** Choisit l'outil : main, pinceau ou pouvoir */
+  setTool(tool: Tool): void {
+    this.tool = tool;
+    this.input.setLeftButtonPans(tool.type === 'hand');
   }
 
   /** Change le rayon du pinceau, en tuiles */
@@ -166,10 +171,19 @@ export class Engine {
     this.input.dispose();
   }
 
-  /** Fait évoluer le monde : pinceau, puis simulation, puis résumé */
+  /** Fait évoluer le monde : outil du dieu, puis simulation, effets et résumé */
   private update(dt: number): void {
-    // Le pinceau suit le temps réel : on peut façonner le monde même en pause
-    this.paint(dt);
+    // Vrai seulement à l'image où le clic commence (et pas tant qu'il est maintenu)
+    const pressed = this.input.painting && !this.wasPressed;
+    this.wasPressed = this.input.painting;
+
+    // Les outils suivent le temps réel : le dieu agit même en pause
+    if (this.tool.type === 'brush') {
+      this.paint(dt);
+    } else if (this.tool.type === 'power' && pressed) {
+      this.castPower(this.tool.power);
+    }
+    this.effects.update(dt);
 
     const ticks = this.clock.advance(dt);
     for (let i = 0; i < ticks; i++) {
@@ -192,16 +206,29 @@ export class Engine {
     this.onSummary?.(this.summary());
   }
 
+  /** Lance un pouvoir sur la tuile sous le pointeur */
+  private castPower(power: PowerKind): void {
+    const tile = this.hoveredTile();
+    if (!tile || !this.world.inBounds(tile.x, tile.y)) return;
+
+    switch (power) {
+      case PowerKind.Lightning:
+        this.simulation.strikeLightning(tile.x, tile.y);
+        this.effects.addLightning(tile.x + 0.5, tile.y + 0.5);
+        break;
+    }
+  }
+
   /** Applique le pinceau actif sous le pointeur */
   private paint(dt: number): void {
-    if (this.activeBrush === null || !this.input.painting) return;
+    if (this.tool.type !== 'brush' || !this.input.painting) return;
 
     const tile = this.hoveredTile();
     if (!tile) return;
 
     const changed = applyBrush(
       this.world,
-      { kind: this.activeBrush, radius: this.brushRadius, strength: BRUSH_SPEED * dt },
+      { kind: this.tool.brush, radius: this.brushRadius, strength: BRUSH_SPEED * dt },
       tile.x,
       tile.y,
     );
@@ -231,29 +258,38 @@ export class Engine {
     this.mapRenderer.draw(ctx, ox, oy, camera.zoom);
     drawVillages(ctx, this.simulation.villages, ox, oy, camera.zoom);
     drawPeople(ctx, this.simulation.people, ox, oy, camera.zoom);
+    this.effects.draw(ctx, ox, oy, camera.zoom);
 
-    this.drawBrushPreview();
+    this.drawToolPreview();
   }
 
-  /** Cercle qui montre la zone que le pinceau va toucher */
-  private drawBrushPreview(): void {
-    if (this.activeBrush === null) return;
+  /**
+   * Cercle qui montre la zone que l'outil va toucher :
+   * plein et blanc pour un pinceau, en pointillés bleus pour un pouvoir
+   */
+  private drawToolPreview(): void {
+    if (this.tool.type === 'hand') return;
     const tile = this.hoveredTile();
     if (!tile) return;
 
     const { ctx, camera } = this;
     const center = camera.worldToScreen(tile.x + 0.5, tile.y + 0.5);
-    const radius = (this.brushRadius + 0.5) * camera.zoom;
+    const isPower = this.tool.type === 'power';
+    const tiles = isPower ? LIGHTNING_RADIUS : this.brushRadius + 0.5;
+    // Au moins 4 pixels, pour rester visible quand on dézoome
+    const radius = Math.max(4, tiles * camera.zoom);
 
     ctx.beginPath();
     ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    ctx.setLineDash(isPower ? [4, 3] : []);
 
     // Contour sombre puis clair : visible sur l'eau comme sur la neige
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.stroke();
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.strokeStyle = isPower ? 'rgba(170, 200, 255, 0.95)' : 'rgba(255, 255, 255, 0.9)';
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 }

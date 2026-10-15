@@ -10,6 +10,7 @@ import {
   FOOD_REGROWTH,
   HUNGRY_AT,
   INITIAL_PEOPLE,
+  LIGHTNING_RADIUS,
   MAX_VILLAGE_SIZE,
   MIN_FOUNDERS,
   PORTION_VALUE,
@@ -418,5 +419,46 @@ describe('Simulation', () => {
 
     expect(sim.people.count).toBe(0);
     expect(sim.villages.count).toBe(0);
+  });
+
+  it('foudroie les mortels proches du point d’impact, et eux seuls', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    sim.people.add(5, 5); // sur la tuile frappée
+    sim.people.add(6, 6); // en diagonale : √2 ≈ 1,41 tuile, sous le rayon de 1,5
+    sim.people.add(7, 5); // à 2 tuiles : épargné
+    sim.people.add(20, 20); // loin : épargné
+
+    expect(LIGHTNING_RADIUS).toBe(1.5);
+    expect(sim.strikeLightning(5, 5)).toBe(2);
+
+    expect(sim.people.count).toBe(2);
+    const survivors = [sim.people.x[0], sim.people.x[1]].sort((a, b) => a - b);
+    expect(survivors).toEqual([7.5, 20.5]);
+  });
+
+  it('brûle la nourriture autour du point d’impact', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+
+    sim.strikeLightning(5, 5);
+
+    expect(sim.food[world.index(5, 5)]).toBe(0);
+    expect(sim.food[world.index(6, 6)]).toBe(0);
+    expect(sim.food[world.index(7, 5)]).toBe(2);
+  });
+
+  it('retire les foudroyés de leur village', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const v = sim.villages.found(5, 5);
+    for (const x of [5, 9]) {
+      const i = addAdult(sim, x, 5);
+      sim.people.village[i] = v;
+      sim.villages.join(v);
+    }
+
+    sim.strikeLightning(5, 5);
+
+    expect(sim.villages.population[v]).toBe(1);
+    expect(sim.villages.count).toBe(1);
   });
 });

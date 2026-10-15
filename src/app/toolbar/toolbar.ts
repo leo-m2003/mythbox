@@ -1,11 +1,14 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS } from '@engine/engine';
+import { HAND } from '@engine/tool';
 import { GameService } from '../services/game-service';
 import { isTyping } from '../shared/is-typing';
 import { TOOLS, type ToolDef } from './tools';
 
 @Component({
   selector: 'app-toolbar',
+  imports: [NgTemplateOutlet],
   templateUrl: './toolbar.html',
   styleUrl: './toolbar.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -16,11 +19,15 @@ import { TOOLS, type ToolDef } from './tools';
 export class Toolbar {
   protected readonly game = inject(GameService);
   protected readonly tools = TOOLS;
+  /** Les outils rangés par groupe, pour l'affichage */
+  protected readonly viewTools = TOOLS.filter((t) => t.tool.type === 'hand');
+  protected readonly shapeTools = TOOLS.filter((t) => t.tool.type === 'brush');
+  protected readonly powerTools = TOOLS.filter((t) => t.tool.type === 'power');
   protected readonly minRadius = MIN_BRUSH_RADIUS;
   protected readonly maxRadius = MAX_BRUSH_RADIUS;
 
   protected select(tool: ToolDef): void {
-    this.game.setTool(tool.id);
+    this.game.setTool(tool.tool);
   }
 
   protected onRadiusInput(event: Event): void {
@@ -34,7 +41,7 @@ export class Toolbar {
     if (isTyping(event.target)) return;
 
     if (event.key === 'Escape') {
-      this.game.setTool(null);
+      this.game.setTool(HAND);
       return;
     }
 
@@ -51,7 +58,7 @@ export class Toolbar {
 
     const tool = this.tools.find((t) => t.key.toLowerCase() === event.key.toLowerCase());
     if (tool) {
-      this.game.setTool(tool.id);
+      this.game.setTool(tool.tool);
       event.preventDefault();
     }
   }

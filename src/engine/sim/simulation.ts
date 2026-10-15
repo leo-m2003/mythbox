@@ -48,6 +48,9 @@ export const BIRTH_HUNGER = 100;
 /** Distance maximale entre les deux adultes, en tuiles */
 const PARTNER_DISTANCE = 2;
 
+/** Rayon de la foudre, en tuiles, mesuré depuis le centre de la tuile frappée */
+export const LIGHTNING_RADIUS = 1.5;
+
 /** Un adulte sans village regarde autour de lui environ une fois par jour */
 const VILLAGE_CHECK_CHANCE = 1 / TICKS_PER_DAY;
 
@@ -190,6 +193,39 @@ export class Simulation {
 
       this.move(i);
     }
+  }
+
+  /**
+   * La foudre de Zeus frappe la tuile (x, y) : les mortels à LIGHTNING_RADIUS tuiles au plus
+   * meurent, et la nourriture des tuiles touchées brûle. Renvoie le nombre de victimes.
+   */
+  strikeLightning(x: number, y: number): number {
+    const cx = x + 0.5;
+    const cy = y + 0.5;
+    const radiusSquared = LIGHTNING_RADIUS * LIGHTNING_RADIUS;
+
+    let victims = 0;
+    const p = this.people;
+    // À l'envers, comme dans tick(), car on retire des habitants
+    for (let i = p.count - 1; i >= 0; i--) {
+      const dx = p.x[i] - cx;
+      const dy = p.y[i] - cy;
+      if (dx * dx + dy * dy <= radiusSquared) {
+        this.removePerson(i);
+        victims++;
+      }
+    }
+
+    const r = Math.ceil(LIGHTNING_RADIUS);
+    for (let ty = y - r; ty <= y + r; ty++) {
+      for (let tx = x - r; tx <= x + r; tx++) {
+        if (!this.world.inBounds(tx, ty)) continue;
+        if ((tx - x) ** 2 + (ty - y) ** 2 <= radiusSquared) {
+          this.food[this.world.index(tx, ty)] = 0;
+        }
+      }
+    }
+    return victims;
   }
 
   /** Vrai si l'habitant i est en âge d'avoir des enfants */

@@ -1,18 +1,28 @@
+import { HAND, PowerKind, type Tool } from '@engine/tool';
 import { BrushKind } from '@engine/world/brushes';
 
 export interface ToolDef {
-  /** Pinceau du moteur, ou null pour l'outil « main » */
-  id: BrushKind | null;
+  /** L'outil du moteur. Toujours le même objet : on peut comparer avec === */
+  tool: Tool;
   label: string;
   /** Raccourci clavier, affiché en majuscule */
   key: string;
   hint: string;
 }
 
+function brush(kind: BrushKind): Tool {
+  return { type: 'brush', brush: kind };
+}
+
+function power(kind: PowerKind): Tool {
+  return { type: 'power', power: kind };
+}
+
 export const TOOLS: readonly ToolDef[] = [
-  { id: null, label: 'Main', key: 'H', hint: 'Déplacer la vue' },
-  { id: BrushKind.Raise, label: 'Élever', key: 'E', hint: 'Soulever les terres et les montagnes' },
-  { id: BrushKind.Lower, label: 'Creuser', key: 'C', hint: 'Creuser les vallées, les lacs et les mers' },
-  { id: BrushKind.Forest, label: 'Forêt', key: 'F', hint: 'Faire pousser des arbres' },
-  { id: BrushKind.Clear, label: 'Défricher', key: 'D', hint: 'Abattre les forêts' },
+  { tool: HAND, label: 'Main', key: 'H', hint: 'Déplacer la vue' },
+  { tool: brush(BrushKind.Raise), label: 'Élever', key: 'E', hint: 'Soulever les terres et les montagnes' },
+  { tool: brush(BrushKind.Lower), label: 'Creuser', key: 'C', hint: 'Creuser les vallées, les lacs et les mers' },
+  { tool: brush(BrushKind.Forest), label: 'Forêt', key: 'F', hint: 'Faire pousser des arbres' },
+  { tool: brush(BrushKind.Clear), label: 'Défricher', key: 'D', hint: 'Abattre les forêts' },
+  { tool: power(PowerKind.Lightning), label: 'Foudre', key: 'Z', hint: 'La foudre de Zeus : foudroyer les mortels' },
 ];
