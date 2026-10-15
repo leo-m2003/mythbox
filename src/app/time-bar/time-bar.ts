@@ -14,7 +14,7 @@ import { isTyping } from '../shared/is-typing';
 })
 export class TimeBar {
   protected readonly game = inject(GameService);
-  /** Les vitesses hors pause : x1, x2, x5 */
+  /** Les vitesses hors pause : x1, x2, x5, x10 */
   protected readonly speeds = SIM_SPEEDS.filter((s): s is Exclude<SimSpeed, 0> => s !== 0);
 
   protected onKeydown(event: KeyboardEvent): void {

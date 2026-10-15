@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { Engine, MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS, type WorldSummary } from '@engine/engine';
 import type { SimSpeed } from '@engine/sim/sim-clock';
-import type { BrushKind } from '@engine/world/brushes';
+import { HAND, type Tool } from '@engine/tool';
 
 /**
  * Pont entre l'interface Angular et le moteur de jeu.
@@ -15,8 +15,8 @@ export class GameService {
   /** Graine du monde affiché */
   readonly seed = this.seedState.asReadonly();
 
-  private readonly toolState = signal<BrushKind | null>(null);
-  /** Pinceau actif, ou null pour l'outil « main » */
+  private readonly toolState = signal<Tool>(HAND);
+  /** Outil tenu par le dieu : main, pinceau ou pouvoir */
   readonly tool = this.toolState.asReadonly();
 
   private readonly brushRadiusState = signal(4);
@@ -31,8 +31,12 @@ export class GameService {
   /** Année en cours dans le monde */
   readonly year = this.yearState.asReadonly();
 
+  private readonly monthState = signal(1);
+  /** Mois dans l'année en cours */
+  readonly month = this.monthState.asReadonly();
+
   private readonly dayState = signal(1);
-  /** Jour dans l'année en cours */
+  /** Jour dans le mois en cours */
   readonly day = this.dayState.asReadonly();
 
   private readonly populationState = signal(0);
@@ -51,7 +55,7 @@ export class GameService {
     this.engine = engine;
     this.seedState.set(engine.seed);
     // Le service fait référence : on transmet ses réglages au moteur
-    engine.setBrush(this.toolState());
+    engine.setTool(this.toolState());
     engine.setBrushRadius(this.brushRadiusState());
     engine.setSpeed(this.speedState());
 
@@ -77,9 +81,9 @@ export class GameService {
     this.engine?.resetView();
   }
 
-  setTool(tool: BrushKind | null): void {
+  setTool(tool: Tool): void {
     this.toolState.set(tool);
-    this.engine?.setBrush(tool);
+    this.engine?.setTool(tool);
   }
 
   setBrushRadius(radius: number): void {
@@ -108,6 +112,7 @@ export class GameService {
   /** Recopie le résumé du moteur dans les signals (un signal inchangé ne redessine rien) */
   private applySummary(summary: WorldSummary): void {
     this.yearState.set(summary.year);
+    this.monthState.set(summary.month);
     this.dayState.set(summary.day);
     this.populationState.set(summary.population);
     this.villagesState.set(summary.villages);
