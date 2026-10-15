@@ -5,7 +5,7 @@ import { Camera, type Point } from '../render/camera';
  * - clic droit ou bouton du milieu glissé : déplace la vue ;
  * - clic gauche : peint avec le pinceau actif, ou déplace la vue si aucun pinceau ;
  * - molette : zoom centré sur le curseur.
- * Le moteur lit `hover` et `painting` à chaque image.
+ * Le moteur lit `hover` et `painting` à chaque image, et récupère les clics avec `takeClick()`.
  */
 export class PointerInput {
   /** Position du pointeur en pixels du canvas, ou null s'il est hors de la carte */
@@ -13,6 +13,12 @@ export class PointerInput {
   /** Vrai tant que le joueur maintient le clic gauche avec un pinceau */
   painting = false;
 
+  /**
+   * Vrai si un clic gauche a commencé depuis le dernier `takeClick()`.
+   * Un clic très bref (pavé tactile) peut commencer ET finir entre deux images :
+   * `painting` serait déjà repassé à faux, mais ce drapeau, lui, s'en souvient.
+   */
+  private clicked = false;
   private leftButtonPans = true;
   private panning = false;
   private lastX = 0;
@@ -38,6 +44,13 @@ export class PointerInput {
 
   dispose(): void {
     this.abort.abort();
+  }
+
+  /** Renvoie vrai si un clic gauche a eu lieu depuis le dernier appel, puis l'oublie */
+  takeClick(): boolean {
+    const clicked = this.clicked;
+    this.clicked = false;
+    return clicked;
   }
 
   /** Avec l'outil « main », le clic gauche déplace la vue au lieu de peindre */
@@ -75,6 +88,7 @@ export class PointerInput {
       e.preventDefault();
     } else if (e.button === 0) {
       this.painting = true;
+      this.clicked = true;
     } else {
       return;
     }

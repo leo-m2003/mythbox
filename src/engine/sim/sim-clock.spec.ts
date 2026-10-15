@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_TICKS_PER_ADVANCE, SimClock } from './sim-clock';
+import { MAX_TICKS_PER_ADVANCE, SimClock, TICKS_PER_YEAR } from './sim-clock';
 
 /** Fait avancer l'horloge de plusieurs images et renvoie le total de pas */
 function run(clock: SimClock, frames: number, dt: number): number {
@@ -32,6 +32,17 @@ describe('SimClock', () => {
     const x5 = new SimClock();
     x5.setSpeed(5);
     expect(run(x5, 20, 0.05)).toBe(50);
+
+    const x10 = new SimClock();
+    x10.setSpeed(10);
+    expect(run(x10, 20, 0.05)).toBe(100);
+  });
+
+  it('compte 1 s par jour, 10 jours par mois et 12 mois par an', () => {
+    expect(TICKS_PER_YEAR).toBe(1200);
+    const clock = new SimClock();
+    // 2 minutes à x1, en images de 0,05 s
+    expect(run(clock, 2400, 0.05)).toBe(TICKS_PER_YEAR);
   });
 
   it('garde les fractions de pas pour l’image suivante', () => {

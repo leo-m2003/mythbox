@@ -4,18 +4,24 @@ export const TICKS_PER_SECOND = 10;
 /** Nombre de pas de simulation dans une journée du jeu (une journée = 1 s à x1) */
 export const TICKS_PER_DAY = 10;
 
-/** Nombre de jours dans une année du jeu (une année = 12 s à x1) */
-export const DAYS_PER_YEAR = 12;
+/** Nombre de jours dans un mois du jeu (un mois = 10 s à x1) */
+export const DAYS_PER_MONTH = 10;
+
+/** Nombre de mois dans une année du jeu (une année = 2 minutes à x1) */
+export const MONTHS_PER_YEAR = 12;
+
+/** Nombre de pas de simulation dans un mois */
+export const TICKS_PER_MONTH = TICKS_PER_DAY * DAYS_PER_MONTH;
 
 /** Nombre de pas de simulation dans une année */
-export const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
+export const TICKS_PER_YEAR = TICKS_PER_MONTH * MONTHS_PER_YEAR;
 
 /** Vitesses possibles : 0 = pause */
-export const SIM_SPEEDS = [0, 1, 2, 5] as const;
+export const SIM_SPEEDS = [0, 1, 2, 5, 10] as const;
 export type SimSpeed = (typeof SIM_SPEEDS)[number];
 
 /**
- * Nombre maximal de pas joués d'un coup.
+ * Nombre maximal de pas joués d'un coup (une image de 0,05 s à x10 en demande juste 5).
  * Si l'ordinateur rame, la simulation ralentit au lieu de geler l'écran
  * en essayant de rattraper son retard.
  */

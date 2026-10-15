@@ -6,6 +6,13 @@
   color: #f3ead7;
 }
 
+// Pas la place pour les deux barres côte à côte : celle du temps passe sous celle du monde
+@media (max-width: 1560px) {
+  :host {
+    top: 76px;
+  }
+}
+
 .panel {
   display: flex;
   align-items: center;
@@ -31,6 +38,11 @@
   font-weight: 600;
   color: #e2bf6a;
   font-variant-numeric: tabular-nums;
+
+  // Mois et jour : 2 chiffres au plus
+  &.short {
+    min-width: 2ch;
+  }
 }
 
 button {

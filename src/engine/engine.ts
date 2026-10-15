@@ -4,9 +4,25 @@ import { Camera, type Point } from './render/camera';
 import { MapRenderer } from './render/map-renderer';
 import { drawPeople } from './render/people-renderer';
 import { drawVillages } from './render/village-renderer';
-import { SimClock, TICKS_PER_DAY, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
-import { Simulation } from './sim/simulation';
-import { applyBrush, BrushKind } from './world/brushes';
+import { Effects } from './render/effects';
+import { FireRenderer } from './render/fire-renderer';
+import {
+  SimClock,
+  TICKS_PER_DAY,
+  TICKS_PER_MONTH,
+  TICKS_PER_YEAR,
+  type SimSpeed,
+} from './sim/sim-clock';
+import {
+  FERTILITY_RADIUS,
+  FIRE_RADIUS,
+  LIGHTNING_RADIUS,
+  QUAKE_RADIUS,
+  RAIN_RADIUS,
+  Simulation,
+} from './sim/simulation';
+import { HAND, PowerKind, type Tool } from './tool';
+import { applyBrush } from './world/brushes';
 import { generateWorld } from './world/generator';
 import { World } from './world/world';
 
@@ -32,7 +48,9 @@ const SUMMARY_INTERVAL = 0.25;
 export interface WorldSummary {
   /** Année en cours, à partir de 1 */
   year: number;
-  /** Jour dans l'année, de 1 à 12 */
+  /** Mois dans l'année, de 1 à 12 */
+  month: number;
+  /** Jour dans le mois, de 1 à 10 */
   day: number;
   /** Nombre d'habitants vivants */
   population: number;
@@ -50,12 +68,14 @@ export class Engine {
   private readonly input: PointerInput;
   private world!: World;
   private mapRenderer!: MapRenderer;
+  private fireRenderer!: FireRenderer;
   private simulation!: Simulation;
   private frameId = 0;
   private lastFrameTime = 0;
 
-  /** Pinceau actif, ou null pour l'outil « main » */
-  private activeBrush: BrushKind | null = null;
+  /** Outil tenu par le dieu : main, pinceau ou pouvoir */
+  private tool: Tool = HAND;
+  private readonly effects = new Effects();
   private brushRadius = 4;
 
   private readonly clock = new SimClock();
@@ -82,6 +102,7 @@ export class Engine {
   newWorld(seed: number = Random.newSeed()): void {
     this.world = generateWorld({ width: WORLD_WIDTH, height: WORLD_HEIGHT, seed });
     this.mapRenderer = new MapRenderer(this.world);
+    this.fireRenderer = new FireRenderer(this.world);
     this.simulation = new Simulation(this.world, seed);
     this.simulation.spawnInitialGroup();
     this.clock.reset();
@@ -103,7 +124,8 @@ export class Engine {
     const tick = this.clock.tick;
     return {
       year: Math.floor(tick / TICKS_PER_YEAR) + 1,
-      day: Math.floor((tick % TICKS_PER_YEAR) / TICKS_PER_DAY) + 1,
+      month: Math.floor((tick % TICKS_PER_YEAR) / TICKS_PER_MONTH) + 1,
+      day: Math.floor((tick % TICKS_PER_MONTH) / TICKS_PER_DAY) + 1,
       population: this.simulation.people.count,
       villages: this.simulation.villages.count,
     };
@@ -116,10 +138,10 @@ export class Engine {
     }
   }
 
-  /** Choisit le pinceau actif, ou null pour l'outil « main » */
-  setBrush(kind: BrushKind | null): void {
-    this.activeBrush = kind;
-    this.input.setLeftButtonPans(kind === null);
+  /** Choisit l'outil : main, pinceau ou pouvoir */
+  setTool(tool: Tool): void {
+    this.tool = tool;
+    this.input.setLeftButtonPans(tool.type === 'hand');
   }
 
   /** Change le rayon du pinceau, en tuiles */
@@ -166,15 +188,35 @@ export class Engine {
     this.input.dispose();
   }
 
-  /** Fait évoluer le monde : pinceau, puis simulation, puis résumé */
+  /** Fait évoluer le monde : outil du dieu, puis simulation, effets et résumé */
   private update(dt: number): void {
-    // Le pinceau suit le temps réel : on peut façonner le monde même en pause
-    this.paint(dt);
+    // Vrai seulement à l'image qui suit le début du clic (et pas tant qu'il est maintenu)
+    const clicked = this.input.takeClick();
+
+    // Les outils suivent le temps réel : le dieu agit même en pause
+    if (this.tool.type === 'brush') {
+      this.paint(dt);
+    } else if (this.tool.type === 'power') {
+      if (this.tool.power === PowerKind.Rain) {
+        // La pluie agit en continu, comme un pinceau
+        if (this.input.painting) this.pourRain(dt);
+      } else if (clicked) {
+        this.castPower(this.tool.power);
+      }
+    }
+    this.effects.update(dt);
 
     const ticks = this.clock.advance(dt);
     for (let i = 0; i < ticks; i++) {
       this.simulateTick();
     }
+    // Des forêts ont brûlé, ou un séisme a bouleversé le relief : on redessine seulement la zone touchée
+    const changed = this.simulation.takeDirtyRect();
+    if (changed) {
+      this.mapRenderer.redrawRect(changed);
+    }
+    // Les flammes scintillent à chaque image, même en pause
+    this.fireRenderer.update(this.simulation.fire, (x, y) => this.effects.addSmoke(x, y));
 
     this.summaryTimer += dt;
     if (this.summaryTimer >= SUMMARY_INTERVAL) {
@@ -192,16 +234,50 @@ export class Engine {
     this.onSummary?.(this.summary());
   }
 
+  /** Lance un pouvoir sur la tuile sous le pointeur */
+  private castPower(power: PowerKind): void {
+    const tile = this.hoveredTile();
+    if (!tile || !this.world.inBounds(tile.x, tile.y)) return;
+
+    switch (power) {
+      case PowerKind.Lightning:
+        this.simulation.strikeLightning(tile.x, tile.y);
+        this.effects.addLightning(tile.x + 0.5, tile.y + 0.5);
+        break;
+      case PowerKind.Fire:
+        this.simulation.igniteFire(tile.x, tile.y);
+        break;
+      case PowerKind.Quake:
+        // Le relief change : la zone sera redessinée avec takeDirtyRect(), juste après
+        this.simulation.quake(tile.x, tile.y);
+        this.effects.addQuake(tile.x + 0.5, tile.y + 0.5, QUAKE_RADIUS);
+        break;
+      case PowerKind.Fertility:
+        this.simulation.bless(tile.x, tile.y);
+        this.effects.addBlessing(tile.x + 0.5, tile.y + 0.5, FERTILITY_RADIUS);
+        break;
+    }
+  }
+
+  /** Fait pleuvoir sous le pointeur pendant `dt` secondes */
+  private pourRain(dt: number): void {
+    const tile = this.hoveredTile();
+    if (!tile || !this.world.inBounds(tile.x, tile.y)) return;
+
+    this.simulation.rain(tile.x, tile.y, dt);
+    this.effects.rain(tile.x + 0.5, tile.y + 0.5, RAIN_RADIUS, dt);
+  }
+
   /** Applique le pinceau actif sous le pointeur */
   private paint(dt: number): void {
-    if (this.activeBrush === null || !this.input.painting) return;
+    if (this.tool.type !== 'brush' || !this.input.painting) return;
 
     const tile = this.hoveredTile();
     if (!tile) return;
 
     const changed = applyBrush(
       this.world,
-      { kind: this.activeBrush, radius: this.brushRadius, strength: BRUSH_SPEED * dt },
+      { kind: this.tool.brush, radius: this.brushRadius, strength: BRUSH_SPEED * dt },
       tile.x,
       tile.y,
     );
@@ -224,36 +300,65 @@ export class Engine {
     ctx.fillStyle = BACKGROUND;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Position à l'écran du coin haut-gauche du monde
+    // Position à l'écran du coin haut-gauche du monde, secouée pendant un séisme
     const origin = camera.worldToScreen(0, 0);
-    const ox = Math.round(origin.x);
-    const oy = Math.round(origin.y);
+    const shake = this.effects.shakeOffset();
+    const ox = Math.round(origin.x) + shake.x;
+    const oy = Math.round(origin.y) + shake.y;
     this.mapRenderer.draw(ctx, ox, oy, camera.zoom);
+    this.fireRenderer.draw(ctx, ox, oy, camera.zoom);
     drawVillages(ctx, this.simulation.villages, ox, oy, camera.zoom);
     drawPeople(ctx, this.simulation.people, ox, oy, camera.zoom);
+    this.effects.draw(ctx, ox, oy, camera.zoom);
 
-    this.drawBrushPreview();
+    this.drawToolPreview();
   }
 
-  /** Cercle qui montre la zone que le pinceau va toucher */
-  private drawBrushPreview(): void {
-    if (this.activeBrush === null) return;
+  /**
+   * Cercle qui montre la zone que l'outil va toucher :
+   * plein et blanc pour un pinceau, en pointillés bleus pour un pouvoir
+   */
+  private drawToolPreview(): void {
+    if (this.tool.type === 'hand') return;
     const tile = this.hoveredTile();
     if (!tile) return;
 
     const { ctx, camera } = this;
     const center = camera.worldToScreen(tile.x + 0.5, tile.y + 0.5);
-    const radius = (this.brushRadius + 0.5) * camera.zoom;
+    const isPower = this.tool.type === 'power';
+    const tiles =
+      this.tool.type === 'power' ? powerRadius(this.tool.power) : this.brushRadius + 0.5;
+    // Au moins 4 pixels, pour rester visible quand on dézoome
+    const radius = Math.max(4, tiles * camera.zoom);
 
     ctx.beginPath();
     ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    ctx.setLineDash(isPower ? [4, 3] : []);
 
     // Contour sombre puis clair : visible sur l'eau comme sur la neige
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.stroke();
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.strokeStyle = isPower ? 'rgba(170, 200, 255, 0.95)' : 'rgba(255, 255, 255, 0.9)';
     ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+/** Rayon d'action d'un pouvoir, en tuiles, pour le cercle d'aperçu */
+function powerRadius(power: PowerKind): number {
+  switch (power) {
+    case PowerKind.Lightning:
+      return LIGHTNING_RADIUS;
+    case PowerKind.Fire:
+      // + 0.5 : le cercle entoure les tuiles touchées au lieu de passer par leur centre
+      return FIRE_RADIUS + 0.5;
+    case PowerKind.Rain:
+      return RAIN_RADIUS + 0.5;
+    case PowerKind.Quake:
+      return QUAKE_RADIUS + 0.5;
+    case PowerKind.Fertility:
+      return FERTILITY_RADIUS + 0.5;
   }
 }

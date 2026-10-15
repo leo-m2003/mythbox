@@ -15,14 +15,67 @@
   pointer-events: auto;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   padding: 8px;
   background: rgba(10, 20, 38, 0.82);
   border: 1px solid rgba(214, 178, 94, 0.35);
   border-radius: 12px;
   backdrop-filter: blur(6px);
+}
+
+// Un groupe d'outils : un titre au-dessus, les boutons en dessous
+.group {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 4px 6px 6px;
+  border-radius: 9px;
+}
+
+.group-title {
+  padding-left: 2px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.group-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+// Façonner : l'or du dieu bâtisseur
+.shape {
+  --accent: #c9a24a;
+  --accent-text: #1a1408;
+  background: rgba(201, 162, 74, 0.08);
+  border: 1px solid rgba(201, 162, 74, 0.25);
+
+  .group-title {
+    color: #e2bf6a;
+  }
+}
+
+// Pouvoirs : le bleu électrique de la foudre
+.power {
+  --accent: #8fb3ff;
+  --accent-text: #0b1530;
+  background: rgba(110, 150, 255, 0.12);
+  border: 1px solid rgba(143, 179, 255, 0.4);
+
+  .group-title {
+    color: #a9c4ff;
+  }
+
+  .tool {
+    border-color: rgba(143, 179, 255, 0.35);
+  }
 }
 
 .tool {
@@ -41,15 +94,16 @@
     background: rgba(255, 255, 255, 0.14);
   }
 
+  // Chaque groupe choisit sa couleur d'accent (or par défaut, pour la main)
   &.active {
     font-weight: 600;
-    color: #1a1408;
-    background: #c9a24a;
-    border-color: #c9a24a;
+    color: var(--accent-text, #1a1408);
+    background: var(--accent, #c9a24a);
+    border-color: var(--accent, #c9a24a);
   }
 
   &:focus-visible {
-    outline: 2px solid #e2bf6a;
+    outline: 2px solid var(--accent, #e2bf6a);
     outline-offset: 2px;
   }
 }
@@ -68,8 +122,8 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: 6px;
-  padding-left: 12px;
+  margin-left: 4px;
+  padding-left: 10px;
   border-left: 1px solid rgba(255, 255, 255, 0.14);
 
   &.disabled {
