@@ -26,4 +26,5 @@ export const TOOLS: readonly ToolDef[] = [
   { tool: brush(BrushKind.Clear), label: 'Défricher', key: 'D', hint: 'Abattre les forêts' },
   { tool: power(PowerKind.Lightning), label: 'Foudre', key: 'Z', hint: 'La foudre de Zeus : foudroyer les mortels' },
   { tool: power(PowerKind.Fire), label: 'Incendie', key: 'I', hint: 'Embraser forêts et prairies : le feu se propage' },
+  { tool: power(PowerKind.Rain), label: 'Pluie', key: 'P', hint: 'Maintenir le clic : éteint le feu et nourrit la terre' },
 ];

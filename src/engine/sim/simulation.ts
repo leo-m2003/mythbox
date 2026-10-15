@@ -2,7 +2,7 @@ import { Random } from '../core/random';
 import type { TileRect } from '../world/brushes';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
-import { Fire } from './fire';
+import { Fire, SCORCH_TICKS } from './fire';
 import { People } from './people';
 import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 import { Villages } from './villages';
@@ -62,6 +62,15 @@ export const FIRE_RADIUS = 1;
 /** Humidité d'une forêt après l'incendie : sous FOREST_MOISTURE, elle redevient prairie */
 export const BURNT_MOISTURE = 0.35;
 
+/** Rayon de la pluie, en tuiles */
+export const RAIN_RADIUS = 4;
+
+/** Nourriture apportée par la pluie, en portions par seconde et par tuile (sans dépasser la capacité) */
+export const RAIN_FOOD = 0.5;
+
+/** La pluie efface la terre brûlée en 10 secondes, au lieu de SCORCH_TICKS pas */
+export const RAIN_REGROWTH = SCORCH_TICKS / 10;
+
 /**
  * Ce qu'a fait un pouvoir. Il servira à calculer la foi gagnée ou perdue (v0.5)
  * et à écrire les mythes du Codex (v0.6).
@@ -71,8 +80,20 @@ export interface PowerResult {
   victims: number;
   /** Tuiles enflammées */
   tilesIgnited: number;
-  /** Village qui a perdu le plus d'habitants, ou -1 */
+  /** Tuiles dont le feu a été éteint */
+  tilesExtinguished: number;
+  /** Nourriture ajoutée, en portions */
+  foodGiven: number;
+  /**
+   * Village le plus touché, ou -1 : celui qui a perdu le plus d'habitants pour un pouvoir
+   * qui tue, celui qui a le plus d'habitants sous le pouvoir pour un bienfait
+   */
   mostAffectedVillage: number;
+}
+
+/** Un pouvoir qui n'a rien fait (encore) : chaque pouvoir part de là et le complète */
+function noEffect(): PowerResult {
+  return { victims: 0, tilesIgnited: 0, tilesExtinguished: 0, foodGiven: 0, mostAffectedVillage: -1 };
 }
 
 /** Un adulte sans village regarde autour de lui environ une fois par jour */
@@ -243,7 +264,10 @@ export class Simulation {
    * meurent, la nourriture des tuiles touchées brûle, et la tuile frappée prend feu si elle le peut.
    */
   strikeLightning(x: number, y: number): PowerResult {
-    const result = this.killAround(x, y, LIGHTNING_RADIUS);
+    const result = noEffect();
+    const killed = this.peopleAround(x, y, LIGHTNING_RADIUS, true);
+    result.victims = killed.count;
+    result.mostAffectedVillage = killed.mostPresentVillage;
 
     this.forEachTileAround(x, y, LIGHTNING_RADIUS, (i) => {
       this.food[i] = 0;
@@ -256,9 +280,40 @@ export class Simulation {
 
   /** Le pouvoir « Incendie » : met le feu à la tuile (x, y) et à ses voisines, si elles peuvent brûler */
   igniteFire(x: number, y: number): PowerResult {
-    const result: PowerResult = { victims: 0, tilesIgnited: 0, mostAffectedVillage: -1 };
+    const result = noEffect();
     this.forEachTileAround(x, y, FIRE_RADIUS, (i) => {
       if (this.fire.ignite(i)) result.tilesIgnited++;
+    });
+    return result;
+  }
+
+  /**
+   * La pluie tombe pendant `dt` secondes sur les tuiles à RAIN_RADIUS de (x, y) :
+   * elle éteint le feu et mouille la terre (qui ne peut plus brûler pendant un mois),
+   * fait repousser l'herbe sur la terre brûlée, et nourrit la terre.
+   * Comme les pinceaux, elle suit le temps réel : on l'appelle à chaque image tant que le clic est maintenu.
+   */
+  rain(x: number, y: number, dt: number): PowerResult {
+    const result = noEffect();
+    result.mostAffectedVillage = this.peopleAround(x, y, RAIN_RADIUS, false).mostPresentVillage;
+
+    const fire = this.fire;
+    // Au moins un pas par image, sinon une image très courte ne ferait rien du tout
+    const regrowth = Math.max(1, Math.round(RAIN_REGROWTH * dt));
+    this.forEachTileAround(x, y, RAIN_RADIUS, (i) => {
+      // Mouillée, la tuile ne pourra pas reprendre feu tout de suite
+      fire.soak(i);
+      if (fire.burning[i] > 0) {
+        fire.extinguish(i);
+        result.tilesExtinguished++;
+      } else if (fire.scorched[i] > 0) {
+        // Rien ne pousse encore : la pluie raccourcit d'abord l'attente
+        fire.regrow(i, regrowth);
+      } else {
+        const before = this.food[i];
+        this.food[i] = Math.min(this.foodCapacity(i), before + RAIN_FOOD * dt);
+        result.foodGiven += this.food[i] - before;
+      }
     });
     return result;
   }
@@ -271,39 +326,44 @@ export class Simulation {
   }
 
   /**
-   * Tue les mortels à `radius` tuiles au plus du centre de la tuile (x, y).
-   * Renvoie le nombre de victimes et le village le plus touché.
+   * Compte les mortels à `radius` tuiles au plus du centre de la tuile (x, y), et les tue si `kill` est vrai.
+   * Renvoie leur nombre et le village le plus représenté parmi eux (-1 si aucun n'a de village).
    */
-  private killAround(x: number, y: number, radius: number): PowerResult {
+  private peopleAround(
+    x: number,
+    y: number,
+    radius: number,
+    kill: boolean,
+  ): { count: number; mostPresentVillage: number } {
     const cx = x + 0.5;
     const cy = y + 0.5;
     const radiusSquared = radius * radius;
-    // Victimes par village, pour trouver le plus touché (une Map suffit : c'est rare)
-    const losses = new Map<number, number>();
+    // Mortels par village (une Map suffit : il n'y en a que quelques-uns sous un pouvoir)
+    const perVillage = new Map<number, number>();
 
-    let victims = 0;
+    let count = 0;
     const p = this.people;
-    // À l'envers, comme dans tick(), car on retire des habitants
+    // À l'envers, comme dans tick(), car on peut retirer des habitants
     for (let i = p.count - 1; i >= 0; i--) {
       const dx = p.x[i] - cx;
       const dy = p.y[i] - cy;
       if (dx * dx + dy * dy <= radiusSquared) {
         const village = p.village[i];
-        if (village >= 0) losses.set(village, (losses.get(village) ?? 0) + 1);
-        this.removePerson(i);
-        victims++;
+        if (village >= 0) perVillage.set(village, (perVillage.get(village) ?? 0) + 1);
+        if (kill) this.removePerson(i);
+        count++;
       }
     }
 
-    let mostAffectedVillage = -1;
-    let mostLosses = 0;
-    for (const [village, count] of losses) {
-      if (count > mostLosses) {
-        mostAffectedVillage = village;
-        mostLosses = count;
+    let mostPresentVillage = -1;
+    let most = 0;
+    for (const [village, n] of perVillage) {
+      if (n > most) {
+        mostPresentVillage = village;
+        most = n;
       }
     }
-    return { victims, tilesIgnited: 0, mostAffectedVillage };
+    return { count, mostPresentVillage };
   }
 
   /** Appelle `action(i)` pour chaque tuile i du monde à `radius` tuiles au plus de (x, y) */

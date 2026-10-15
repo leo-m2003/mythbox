@@ -7,7 +7,7 @@ import { drawVillages } from './render/village-renderer';
 import { Effects } from './render/effects';
 import { FireRenderer } from './render/fire-renderer';
 import { SimClock, TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR, type SimSpeed } from './sim/sim-clock';
-import { FIRE_RADIUS, LIGHTNING_RADIUS, Simulation } from './sim/simulation';
+import { FIRE_RADIUS, LIGHTNING_RADIUS, RAIN_RADIUS, Simulation } from './sim/simulation';
 import { HAND, PowerKind, type Tool } from './tool';
 import { applyBrush } from './world/brushes';
 import { generateWorld } from './world/generator';
@@ -183,8 +183,13 @@ export class Engine {
     // Les outils suivent le temps réel : le dieu agit même en pause
     if (this.tool.type === 'brush') {
       this.paint(dt);
-    } else if (this.tool.type === 'power' && clicked) {
-      this.castPower(this.tool.power);
+    } else if (this.tool.type === 'power') {
+      if (this.tool.power === PowerKind.Rain) {
+        // La pluie agit en continu, comme un pinceau
+        if (this.input.painting) this.pourRain(dt);
+      } else if (clicked) {
+        this.castPower(this.tool.power);
+      }
     }
     this.effects.update(dt);
 
@@ -230,6 +235,15 @@ export class Engine {
         this.simulation.igniteFire(tile.x, tile.y);
         break;
     }
+  }
+
+  /** Fait pleuvoir sous le pointeur pendant `dt` secondes */
+  private pourRain(dt: number): void {
+    const tile = this.hoveredTile();
+    if (!tile || !this.world.inBounds(tile.x, tile.y)) return;
+
+    this.simulation.rain(tile.x, tile.y, dt);
+    this.effects.rain(tile.x + 0.5, tile.y + 0.5, RAIN_RADIUS, dt);
   }
 
   /** Applique le pinceau actif sous le pointeur */
@@ -316,5 +330,7 @@ function powerRadius(power: PowerKind): number {
     case PowerKind.Fire:
       // + 0.5 : le cercle entoure les tuiles touchées au lieu de passer par leur centre
       return FIRE_RADIUS + 0.5;
+    case PowerKind.Rain:
+      return RAIN_RADIUS + 0.5;
   }
 }

@@ -9,22 +9,29 @@ import { TICKS_PER_MONTH } from './sim-clock';
  */
 export const SCORCH_TICKS = 6 * TICKS_PER_MONTH;
 
+/** Une terre mouillée par la pluie ne peut pas brûler pendant 1 mois (10 secondes à x1) */
+export const WET_TICKS = TICKS_PER_MONTH;
+
 /** Inflammabilité et durée de combustion par terrain, en tableaux typés (lus pour chaque tuile en feu) */
 const FLAMMABILITY = Float32Array.from(Object.values(TERRAIN_INFO).map((info) => info.flammability));
 const BURN_TICKS = Uint8Array.from(Object.values(TERRAIN_INFO).map((info) => info.burnTicks));
 
 /**
- * Les incendies : deux couches de plus sur la grille du monde.
+ * Les incendies : trois couches de plus sur la grille du monde.
  * - burning : pas de combustion restants (0 = pas de feu) ;
- * - scorched : pas restants avant que la terre brûlée puisse brûler à nouveau.
+ * - scorched : pas restants avant que la terre brûlée puisse brûler à nouveau ;
+ * - wet : pas restants avant que la terre mouillée par la pluie sèche.
  */
 export class Fire {
   readonly burning: Uint8Array;
   readonly scorched: Uint16Array;
+  readonly wet: Uint8Array;
   /** Nombre de tuiles en feu */
   count = 0;
   /** Nombre de tuiles encore marquées par un incendie */
   scorchedCount = 0;
+  /** Nombre de tuiles encore mouillées */
+  wetCount = 0;
 
   /** Tuiles qui prendront feu à la fin du pas (réutilisé d'un pas à l'autre) */
   private readonly spreading: number[] = [];
@@ -32,12 +39,16 @@ export class Fire {
   constructor(private readonly world: World) {
     this.burning = new Uint8Array(world.size);
     this.scorched = new Uint16Array(world.size);
+    this.wet = new Uint8Array(world.size);
   }
 
   /** Vrai si la tuile i peut prendre feu maintenant */
   canBurn(i: number): boolean {
     return (
-      this.burning[i] === 0 && this.scorched[i] === 0 && FLAMMABILITY[this.world.terrain[i]] > 0
+      this.burning[i] === 0 &&
+      this.scorched[i] === 0 &&
+      this.wet[i] === 0 &&
+      FLAMMABILITY[this.world.terrain[i]] > 0
     );
   }
 
@@ -56,15 +67,28 @@ export class Fire {
     this.count--;
   }
 
+  /** Mouille la tuile i : elle ne pourra pas brûler pendant WET_TICKS pas */
+  soak(i: number): void {
+    if (this.wet[i] === 0) this.wetCount++;
+    this.wet[i] = WET_TICKS;
+  }
+
+  /** Rapproche de `ticks` pas la fin de la terre brûlée sur la tuile i (la pluie fait repousser l'herbe) */
+  regrow(i: number, ticks: number): void {
+    if (this.scorched[i] === 0) return;
+    this.scorched[i] = Math.max(0, this.scorched[i] - ticks);
+    if (this.scorched[i] === 0) this.scorchedCount--;
+  }
+
   /**
    * Un pas de simulation : le feu se propage aux voisines, puis chaque tuile en feu se consume.
    * `onBurnedOut(i)` est appelé quand la tuile i finit de brûler.
    */
   tick(random: Random, onBurnedOut: (i: number) => void): void {
     // Rien à faire : on évite de parcourir les 49 152 tuiles
-    if (this.count === 0 && this.scorchedCount === 0) return;
+    if (this.count === 0 && this.scorchedCount === 0 && this.wetCount === 0) return;
 
-    const { burning, scorched, world } = this;
+    const { burning, scorched, wet, world } = this;
     const width = world.width;
 
     for (let i = 0; i < burning.length; i++) {
@@ -77,6 +101,10 @@ export class Fire {
           scorched[i]--;
         }
         if (scorched[i] === 0) this.scorchedCount--;
+      }
+      if (wet[i] > 0) {
+        wet[i]--;
+        if (wet[i] === 0) this.wetCount--;
       }
       if (burning[i] === 0) continue;
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Random } from '../core/random';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
-import { Fire, SCORCH_TICKS } from './fire';
+import { Fire, SCORCH_TICKS, WET_TICKS } from './fire';
 
 /**
  * Une île de sable plat (qui ne brûle pas), avec une bande horizontale de forêt
@@ -133,5 +133,40 @@ describe('Fire', () => {
 
     expect(fire.scorchedCount).toBe(0);
     expect(fire.scorched[tile]).toBe(0);
+  });
+
+  it('fait repousser l’herbe plus tôt sur la terre brûlée', () => {
+    const world = sandWorldWithForest(1);
+    const fire = new Fire(world);
+    const tile = world.index(2, 5);
+    fire.ignite(tile);
+    run(world, fire, new Random(1), TERRAIN_INFO[Terrain.Forest].burnTicks);
+    expect(fire.scorched[tile]).toBe(SCORCH_TICKS);
+
+    fire.regrow(tile, 100);
+    expect(fire.scorched[tile]).toBe(SCORCH_TICKS - 100);
+    expect(fire.scorchedCount).toBe(1);
+
+    // On ne descend pas sous 0, et la tuile n'est plus comptée
+    fire.regrow(tile, SCORCH_TICKS);
+    expect(fire.scorched[tile]).toBe(0);
+    expect(fire.scorchedCount).toBe(0);
+  });
+
+  it('ne brûle pas une terre mouillée, jusqu’à ce qu’elle sèche', () => {
+    const world = sandWorldWithForest(1);
+    const fire = new Fire(world);
+    const tile = world.index(2, 5);
+
+    fire.soak(tile);
+    expect(fire.ignite(tile)).toBe(false);
+    expect(fire.wetCount).toBe(1);
+
+    run(world, fire, new Random(1), WET_TICKS - 1);
+    expect(fire.ignite(tile)).toBe(false);
+
+    run(world, fire, new Random(1), 1);
+    expect(fire.wetCount).toBe(0);
+    expect(fire.ignite(tile)).toBe(true);
   });
 });

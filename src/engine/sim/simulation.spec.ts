@@ -16,6 +16,8 @@ import {
   MAX_VILLAGE_SIZE,
   MIN_FOUNDERS,
   PORTION_VALUE,
+  RAIN_FOOD,
+  RAIN_RADIUS,
   Simulation,
   STARVATION,
   WANDER_RADIUS,
@@ -563,5 +565,75 @@ describe('Simulation', () => {
     // La terre a récupéré : la prairie repousse
     sim.tick();
     expect(sim.food[tile]).toBeGreaterThan(0);
+  });
+
+  it('la pluie éteint le feu sans laisser de terre brûlée, et mouille la terre', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+    sim.igniteFire(5, 5);
+    expect(sim.fire.count).toBe(5);
+
+    const result = sim.rain(5, 5, 0.1);
+
+    expect(result.tilesExtinguished).toBe(5);
+    expect(sim.fire.count).toBe(0);
+    expect(sim.fire.scorchedCount).toBe(0);
+    // La terre mouillée ne reprend pas feu tout de suite
+    expect(sim.igniteFire(5, 5).tilesIgnited).toBe(0);
+  });
+
+  it('la pluie nourrit la terre, sans dépasser ce qu’elle peut porter', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+    expect(RAIN_RADIUS).toBe(4);
+    const center = world.index(5, 5);
+    const outside = world.index(10, 5); // à 5 tuiles : hors de la pluie
+    sim.food[center] = 0;
+    sim.food[outside] = 0;
+
+    // Toutes les autres tuiles sont pleines : seule la tuile vidée reçoit de la nourriture
+    expect(RAIN_FOOD).toBe(0.5);
+    expect(sim.rain(5, 5, 1).foodGiven).toBe(0.5);
+    expect(sim.food[center]).toBe(0.5);
+    expect(sim.food[outside]).toBe(0);
+
+    sim.rain(5, 5, 10);
+    // Une prairie porte 2 portions au plus
+    expect(sim.food[center]).toBe(2);
+  });
+
+  it('la pluie fait repousser l’herbe sur la terre brûlée en 10 secondes', () => {
+    const world = sandWorld(5, 5);
+    const tile = world.index(5, 5);
+    const sim = new Simulation(world, 1);
+    sim.fire.ignite(tile);
+    runUntil(sim, () => sim.fire.count === 0);
+    expect(sim.fire.scorched[tile]).toBe(SCORCH_TICKS);
+
+    // 9,9 secondes de pluie, en images de 0,1 s : pas encore tout à fait
+    for (let t = 0; t < 99; t++) sim.rain(5, 5, 0.1);
+    expect(sim.fire.scorched[tile]).toBeGreaterThan(0);
+    expect(sim.food[tile]).toBe(0);
+
+    sim.rain(5, 5, 0.1);
+    expect(sim.fire.scorched[tile]).toBe(0);
+    expect(sim.fire.scorchedCount).toBe(0);
+  });
+
+  it('la pluie ne tue personne et dit quel village elle arrose le plus', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    const a = sim.villages.found(2, 2);
+    const b = sim.villages.found(25, 25);
+    for (const v of [a, b, b]) {
+      const i = addAdult(sim, 5, 5);
+      sim.people.village[i] = v;
+      sim.villages.join(v);
+    }
+
+    const result = sim.rain(5, 5, 0.1);
+
+    expect(result.victims).toBe(0);
+    expect(result.mostAffectedVillage).toBe(b);
+    expect(sim.people.count).toBe(3);
   });
 });

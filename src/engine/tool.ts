@@ -6,6 +6,8 @@ export enum PowerKind {
   Lightning,
   /** L'incendie : met le feu à la végétation, qui se propage de proche en proche */
   Fire,
+  /** La pluie : tant qu'on maintient le clic, elle éteint le feu et nourrit la terre */
+  Rain,
 }
 
 /**

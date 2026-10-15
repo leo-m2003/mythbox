@@ -1,5 +1,5 @@
 import { Random } from '../core/random';
-import { SCORCH_TICKS, type Fire } from '../sim/fire';
+import { SCORCH_TICKS, WET_TICKS, type Fire } from '../sim/fire';
 import { World } from '../world/world';
 
 /** Chance, à chaque image, qu'une tuile en feu lâche une volute de fumée */
@@ -13,7 +13,7 @@ const EMBERS_PART = 0.1;
 const EMBER_CHANCE = 0.02;
 
 /**
- * Dessine les incendies par-dessus la carte : flammes et terre brûlée.
+ * Dessine les incendies par-dessus la carte : flammes, terre brûlée et terre mouillée.
  * Même principe que MapRenderer : un petit canvas caché (1 pixel = 1 tuile),
  * recopié agrandi. Les tuiles sans feu restent transparentes.
  */
@@ -41,9 +41,9 @@ export class FireRenderer {
    * `onSmoke(x, y)` reçoit les tuiles qui fument, pour les particules.
    */
   update(fire: Fire, onSmoke: (x: number, y: number) => void): void {
-    if (fire.count === 0 && fire.scorchedCount === 0) {
+    if (fire.count === 0 && fire.scorchedCount === 0 && fire.wetCount === 0) {
       if (this.visible) {
-        // Le dernier feu vient de s'éteindre et la terre a repoussé : on efface le calque
+        // Le dernier feu vient de s'éteindre, la terre a repoussé et séché : on efface le calque
         this.image.data.fill(0);
         this.bufferCtx.putImageData(this.image, 0, 0);
         this.visible = false;
@@ -67,6 +67,12 @@ export class FireRenderer {
         }
       } else if (fire.scorched[i] > 0) {
         this.writeScorched(data, p, i, fire.scorched[i] / SCORCH_TICKS);
+      } else if (fire.wet[i] > 0) {
+        // Terre mouillée : un voile bleu sombre qui disparaît en séchant
+        data[p] = 20;
+        data[p + 1] = 40;
+        data[p + 2] = 80;
+        data[p + 3] = 70 * (fire.wet[i] / WET_TICKS);
       } else {
         data[p + 3] = 0;
       }
