@@ -11,17 +11,15 @@ function run(clock: SimClock, frames: number, dt: number): number {
 }
 
 describe('SimClock', () => {
-  it('démarre à x1, au pas 0', () => {
+  it('démarre à x1', () => {
     const clock = new SimClock();
     expect(clock.speed).toBe(1);
-    expect(clock.tick).toBe(0);
   });
 
   it('joue 10 pas par seconde à x1', () => {
     const clock = new SimClock();
     // 20 images de 0,05 s = 1 seconde
     expect(run(clock, 20, 0.05)).toBe(10);
-    expect(clock.tick).toBe(10);
   });
 
   it('va deux fois plus vite à x2 et cinq fois plus vite à x5', () => {
@@ -56,7 +54,6 @@ describe('SimClock', () => {
     const clock = new SimClock();
     clock.setSpeed(0);
     expect(run(clock, 20, 0.05)).toBe(0);
-    expect(clock.tick).toBe(0);
   });
 
   it('plafonne le nombre de pas joués d’un coup', () => {
@@ -69,12 +66,14 @@ describe('SimClock', () => {
     expect(clock.advance(0.05)).toBe(2);
   });
 
-  it('se remet à zéro sans changer de vitesse', () => {
+    it('oublie la fraction de pas en attente sans changer de vitesse', () => {
     const clock = new SimClock();
-    clock.setSpeed(2);
-    run(clock, 10, 0.05);
+    clock.setSpeed(5);
+    // 0,01 s à x5 = un demi-pas, mis en attente
+    expect(clock.advance(0.01)).toBe(0);
     clock.reset();
-    expect(clock.tick).toBe(0);
-    expect(clock.speed).toBe(2);
+    // Sans reset(), ce deuxième demi-pas compléterait le premier
+    expect(clock.advance(0.01)).toBe(0);
+    expect(clock.speed).toBe(5);
   });
 });

@@ -2,6 +2,7 @@ import { Random } from '../core/random';
 import type { TileRect } from '../world/brushes';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
 import { World } from '../world/world';
+import { Season, seasonAt } from './calendar';
 import { Fire, SCORCH_TICKS } from './fire';
 import { People } from './people';
 import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
@@ -48,7 +49,7 @@ const BIRTH_CHANCE = 1 / TICKS_PER_YEAR;
 export const BIRTH_COOLDOWN = 2 * TICKS_PER_YEAR;
 
 /** Un enfant fatigue : la faim du parent augmente d'autant */
-export const BIRTH_HUNGER = 3 *TICKS_PER_MONTH;
+export const BIRTH_HUNGER = 3 * TICKS_PER_MONTH;
 
 /** Distance maximale entre les deux adultes, en tuiles */
 const PARTNER_DISTANCE = 2;
@@ -159,10 +160,21 @@ export const MAX_VILLAGE_SIZE = 40;
 const LEAVE_CHANCE = 1 / TICKS_PER_YEAR;
 
 /**
- * Repousse de la nourriture, en portions par pas : une portion tous les 5 ans.
+ * Repousse de la nourriture, en portions par pas, en moyenne sur l'année : une portion tous les 5 ans.
  * C'est elle qui fixe combien d'habitants l'île peut nourrir (voir le guide de l'étape 4).
  */
 export const FOOD_REGROWTH = 1 / (5 * TICKS_PER_YEAR);
+
+/**
+ * La repousse selon la saison, en multiple de FOOD_REGROWTH : rapide au printemps, presque nulle l'hiver.
+ * La moyenne vaut 1 : sur une année entière, la nourriture repousse autant qu'avant les saisons.
+ */
+export const SEASON_FOOD_GROWTH: Record<Season, number> = {
+  [Season.Spring]: 1.7,
+  [Season.Summer]: 1.3,
+  [Season.Autumn]: 0.8,
+  [Season.Winter]: 0.2,
+};
 
 /**
  * Nourriture maximale par type de terrain, rangée dans un petit tableau typé.
@@ -186,6 +198,8 @@ export class Simulation {
   readonly food: Float32Array;
   readonly fire: Fire;
   private readonly random: Random;
+  /** Nombre de pas joués depuis le début du monde : c'est lui qui donne la date et la saison */
+  private elapsed = 0;
 
   /** Zone de la carte dont le terrain a changé depuis le dernier dessin (forêts brûlées, séismes), ou null */
   private dirty: TileRect | null = null;
@@ -205,6 +219,11 @@ export class Simulation {
       this.food[i] = this.foodCapacity(i);
     }
     this.fire = new Fire(world);
+  }
+
+  /** Nombre de pas joués depuis le début du monde */
+  get ticks(): number {
+    return this.elapsed;
   }
 
   /**
@@ -298,6 +317,7 @@ export class Simulation {
 
       this.move(i);
     }
+    this.elapsed++;
   }
 
   /**
@@ -733,17 +753,19 @@ export class Simulation {
   }
 
   /**
-   * La nourriture repousse doucement, sans dépasser ce que le terrain peut porter.
+   * La nourriture repousse doucement, plus ou moins vite selon la saison,
+   * sans dépasser ce que le terrain peut porter.
    * Sur la terre brûlée, rien ne repousse tant qu'elle n'a pas récupéré.
    */
   private growFood(): void {
+    const regrowth = FOOD_REGROWTH * SEASON_FOOD_GROWTH[seasonAt(this.elapsed)];
     const food = this.food;
     const terrain = this.world.terrain;
     const scorched = this.fire.scorched;
     for (let i = 0; i < food.length; i++) {
       if (scorched[i] > 0) continue;
       // Un pinceau a pu réduire la capacité (forêt défrichée, prairie inondée…)
-      food[i] = Math.min(FOOD_CAPACITY[terrain[i]], food[i] + FOOD_REGROWTH);
+      food[i] = Math.min(FOOD_CAPACITY[terrain[i]], food[i] + regrowth);
     }
   }
 

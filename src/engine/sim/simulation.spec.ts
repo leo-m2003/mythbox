@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Terrain } from '../world/terrain';
 import { World } from '../world/world';
+import { TICKS_PER_SEASON } from './calendar';
 import { SCORCH_TICKS } from './fire';
 import { TICKS_PER_YEAR } from './sim-clock';
 import {
@@ -226,6 +227,7 @@ describe('Simulation', () => {
     const tile = world.index(10, 5);
     sim.food[tile] = 0;
 
+    // 5 ans tout rond : les saisons rapides et lentes se compensent
     for (let t = 0; t < 1 / FOOD_REGROWTH; t++) {
       sim.tick();
     }
@@ -235,6 +237,36 @@ describe('Simulation', () => {
       sim.tick();
     }
     expect(sim.food[tile]).toBe(2);
+  });
+
+  it('fait repousser la nourriture plus vite au printemps, et presque pas l’hiver', () => {
+    const world = sandWorld(10, 5);
+    const sim = new Simulation(world, 1);
+    const tile = world.index(10, 5);
+    sim.food[tile] = 0;
+
+    // Ce qui repousse pendant chaque saison de la première année : printemps, été, automne, hiver
+    const gains: number[] = [];
+    for (let season = 0; season < 4; season++) {
+      const before = sim.food[tile];
+      for (let t = 0; t < TICKS_PER_SEASON; t++) sim.tick();
+      gains.push(sim.food[tile] - before);
+    }
+
+    const [spring, summer, autumn, winter] = gains;
+    expect(spring).toBeGreaterThan(summer);
+    expect(summer).toBeGreaterThan(autumn);
+    expect(autumn).toBeGreaterThan(winter);
+    expect(winter).toBeLessThan(spring / 5);
+    // Sur l'année, autant qu'avant les saisons
+    expect(spring + summer + autumn + winter).toBeCloseTo(TICKS_PER_YEAR * FOOD_REGROWTH, 5);
+  });
+
+  it('compte les pas depuis le début du monde', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    expect(sim.ticks).toBe(0);
+    for (let t = 0; t < 25; t++) sim.tick();
+    expect(sim.ticks).toBe(25);
   });
 
   it('fait apparaître un groupe d’adultes de 16 à 30 ans', () => {
@@ -712,7 +744,7 @@ describe('Simulation', () => {
     expect(a.elevation).toEqual(b.elevation);
   });
 
-    it('la fertilité remplit la nourriture dans son rayon, et pas au-delà', () => {
+  it('la fertilité remplit la nourriture dans son rayon, et pas au-delà', () => {
     const world = grassWorldWithRiver();
     const sim = new Simulation(world, 1);
     expect(FERTILITY_RADIUS).toBe(5);

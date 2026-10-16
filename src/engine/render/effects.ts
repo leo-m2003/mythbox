@@ -158,7 +158,7 @@ export class Effects {
       const k = this.smokeCount++;
       this.smokeX[k] = x + Math.cos(angle) * distance;
       this.smokeY[k] = y + Math.sin(angle) * distance;
-      // La poussière part dans tous les sens, et certaines volutes naissent un peu plus tard
+      // La poussière part dans tous les sens, et certaines volutes s'effacent plus tôt que d'autres
       this.smokeDrift[k] = this.random.range(-0.6, 0.6);
       this.smokeAge[k] = this.random.range(0, 0.6);
       this.smokeKind[k] = DUST;

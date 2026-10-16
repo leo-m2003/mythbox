@@ -30,11 +30,11 @@ export const MAX_TICKS_PER_ADVANCE = 5;
 /**
  * Horloge de la simulation, à pas fixe.
  * Le rendu suit le rythme de l'écran (dt variable), mais la simulation avance
- * toujours par pas identiques : son résultat ne dépend pas de la machine.
+  * toujours par pas identiques : son résultat ne dépend pas de la machine.
+ * L'horloge dit seulement combien de pas jouer : c'est la simulation qui les compte (`Simulation.ticks`).
  */
 export class SimClock {
   private currentSpeed: SimSpeed = 1;
-  private elapsedTicks = 0;
   /** Fraction de pas en attente (entre 0 et 1) */
   private pending = 0;
 
@@ -42,18 +42,12 @@ export class SimClock {
     return this.currentSpeed;
   }
 
-  /** Nombre de pas joués depuis le début du monde */
-  get tick(): number {
-    return this.elapsedTicks;
-  }
-
   setSpeed(speed: SimSpeed): void {
     this.currentSpeed = speed;
   }
 
-  /** Remet l'horloge à zéro (nouveau monde), sans changer la vitesse */
+  /** Oublie la fraction de pas en attente (nouveau monde), sans changer la vitesse */
   reset(): void {
-    this.elapsedTicks = 0;
     this.pending = 0;
   }
 
@@ -74,7 +68,6 @@ export class SimClock {
       this.pending = 0;
     }
 
-    this.elapsedTicks += ticks;
     return ticks;
   }
 }

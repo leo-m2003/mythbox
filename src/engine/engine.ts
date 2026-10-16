@@ -6,13 +6,8 @@ import { drawPeople } from './render/people-renderer';
 import { drawVillages } from './render/village-renderer';
 import { Effects } from './render/effects';
 import { FireRenderer } from './render/fire-renderer';
-import {
-  SimClock,
-  TICKS_PER_DAY,
-  TICKS_PER_MONTH,
-  TICKS_PER_YEAR,
-  type SimSpeed,
-} from './sim/sim-clock';
+import { dateAt, type GameDate } from './sim/calendar';
+import { SimClock, type SimSpeed } from './sim/sim-clock';
 import {
   FERTILITY_RADIUS,
   FIRE_RADIUS,
@@ -44,14 +39,8 @@ const MAX_FRAME_TIME = 0.05;
 /** Intervalle entre deux résumés envoyés à l'interface, en secondes */
 const SUMMARY_INTERVAL = 0.25;
 
-/** Petit résumé du monde, envoyé à l'interface quelques fois par seconde */
-export interface WorldSummary {
-  /** Année en cours, à partir de 1 */
-  year: number;
-  /** Mois dans l'année, de 1 à 12 */
-  month: number;
-  /** Jour dans le mois, de 1 à 10 */
-  day: number;
+/** Petit résumé du monde, envoyé à l'interface quelques fois par seconde : la date, et… */
+export interface WorldSummary extends GameDate {
   /** Nombre d'habitants vivants */
   population: number;
   /** Nombre de villages */
@@ -121,11 +110,9 @@ export class Engine {
 
   /** Résumé du monde à l'instant présent */
   summary(): WorldSummary {
-    const tick = this.clock.tick;
     return {
-      year: Math.floor(tick / TICKS_PER_YEAR) + 1,
-      month: Math.floor((tick % TICKS_PER_YEAR) / TICKS_PER_MONTH) + 1,
-      day: Math.floor((tick % TICKS_PER_MONTH) / TICKS_PER_DAY) + 1,
+      // La date vient de la simulation : c'est elle qui compte les pas
+      ...dateAt(this.simulation.ticks),
       population: this.simulation.people.count,
       villages: this.simulation.villages.count,
     };
@@ -215,6 +202,8 @@ export class Engine {
     if (changed) {
       this.mapRenderer.redrawRect(changed);
     }
+    // Les couleurs de la carte suivent les saisons
+    this.mapRenderer.setTime(this.simulation.ticks);
     // Les flammes scintillent à chaque image, même en pause
     this.fireRenderer.update(this.simulation.fire, (x, y) => this.effects.addSmoke(x, y));
 

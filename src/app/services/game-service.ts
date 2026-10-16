@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { Engine, MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS, type WorldSummary } from '@engine/engine';
+import { Season } from '@engine/sim/calendar';
 import type { SimSpeed } from '@engine/sim/sim-clock';
 import { HAND, type Tool } from '@engine/tool';
 
@@ -38,6 +39,10 @@ export class GameService {
   private readonly dayState = signal(1);
   /** Jour dans le mois en cours */
   readonly day = this.dayState.asReadonly();
+
+  private readonly seasonState = signal(Season.Spring);
+  /** Saison en cours */
+  readonly season = this.seasonState.asReadonly();
 
   private readonly populationState = signal(0);
   /** Nombre d'habitants vivants */
@@ -114,6 +119,7 @@ export class GameService {
     this.yearState.set(summary.year);
     this.monthState.set(summary.month);
     this.dayState.set(summary.day);
+    this.seasonState.set(summary.season);
     this.populationState.set(summary.population);
     this.villagesState.set(summary.villages);
   }

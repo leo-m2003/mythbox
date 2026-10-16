@@ -7,7 +7,7 @@
 }
 
 // Pas la place pour les deux barres côte à côte : celle du temps passe sous celle du monde
-@media (max-width: 1560px) {
+@media (max-width: 1640px) {
   :host {
     top: 76px;
   }
@@ -42,6 +42,11 @@
   // Mois et jour : 2 chiffres au plus
   &.short {
     min-width: 2ch;
+  }
+
+  // La place de « Printemps », le plus long : la barre ne bouge pas quand la saison change
+  &.season {
+    min-width: 6.6em;
   }
 }
 

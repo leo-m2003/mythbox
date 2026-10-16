@@ -1,6 +1,7 @@
-import { Terrain, TERRAIN_INFO } from '../world/terrain';
+import { Terrain } from '../world/terrain';
 import { World } from '../world/world';
 import type { TileRect } from '../world/brushes';
+import { sameColor, seasonColors } from './season-colors';
 
 /**
  * Dessine la carte dans un petit canvas caché (1 pixel = 1 tuile),
@@ -10,6 +11,8 @@ export class MapRenderer {
   private readonly buffer: OffscreenCanvas;
   private readonly bufferCtx: OffscreenCanvasRenderingContext2D;
   private readonly image: ImageData;
+  /** Couleur de chaque terrain à la saison en cours (même index que l'enum Terrain) */
+  private colors = seasonColors(0);
 
   constructor(private readonly world: World) {
     this.buffer = new OffscreenCanvas(world.width, world.height);
@@ -30,6 +33,18 @@ export class MapRenderer {
       }
     }
     this.bufferCtx.putImageData(this.image, 0, 0);
+  }
+
+  /**
+   * Suit les saisons : à appeler à chaque image avec le pas en cours.
+   * Toute la carte est redessinée, mais seulement quand une couleur a changé :
+   * pendant le dernier mois de chaque saison, jamais le reste du temps.
+   */
+  setTime(tick: number): void {
+    const colors = seasonColors(tick);
+    if (colors.every((color, terrain) => sameColor(color, this.colors[terrain]))) return;
+    this.colors = colors;
+    this.redrawAll();
   }
 
   /** Recalcule seulement les tuiles d'une zone (après un coup de pinceau) */
@@ -71,7 +86,7 @@ export class MapRenderer {
 
   private writeTile(x: number, y: number): void {
     const i = this.world.index(x, y);
-    const [r, g, b] = TERRAIN_INFO[this.world.terrain[i] as Terrain].color;
+    const [r, g, b] = this.colors[this.world.terrain[i]];
     const shade = this.shadeAt(x, y);
 
     // Chaque pixel occupe 4 cases : rouge, vert, bleu, opacité
