@@ -404,7 +404,7 @@ describe('Simulation', () => {
       sim.villages.join(v);
     }
 
-    runUntil(sim, () => sim.people.count === 3);
+    runUntil(sim, () => sim.people.count === 3, 20_000);
 
     expect(sim.people.count).toBe(3);
     expect(sim.people.village[2]).toBe(v);

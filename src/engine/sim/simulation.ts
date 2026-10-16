@@ -23,13 +23,13 @@ const MAX_WAIT = 30;
  * Faim à partir de laquelle un habitant cherche à manger (2 mois).
  * Une « portion » est donc une grosse réserve : la récolte d'une saison, pas un repas.
  */
-export const HUNGRY_AT = 2 * TICKS_PER_MONTH;
+export const HUNGRY_AT = 6 * TICKS_PER_MONTH;
 
 /** Faim à laquelle un habitant meurt (4 mois sans manger) */
-export const STARVATION = 4 * TICKS_PER_MONTH;
+export const STARVATION = 12 * TICKS_PER_MONTH;
 
 /** Faim effacée par une portion de nourriture */
-export const PORTION_VALUE = 2 * TICKS_PER_MONTH;
+export const PORTION_VALUE = 6 * TICKS_PER_MONTH;
 
 /** Âge adulte : à partir de 16 ans, on peut avoir des enfants */
 export const ADULT_AGE = 16 * TICKS_PER_YEAR;
@@ -48,7 +48,7 @@ const BIRTH_CHANCE = 1 / TICKS_PER_YEAR;
 export const BIRTH_COOLDOWN = 2 * TICKS_PER_YEAR;
 
 /** Un enfant fatigue : la faim du parent augmente d'autant */
-export const BIRTH_HUNGER = TICKS_PER_MONTH;
+export const BIRTH_HUNGER = 3 *TICKS_PER_MONTH;
 
 /** Distance maximale entre les deux adultes, en tuiles */
 const PARTNER_DISTANCE = 2;
