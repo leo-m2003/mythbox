@@ -7,6 +7,7 @@ import { Fire, SCORCH_TICKS } from './fire';
 import { People } from './people';
 import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 import { Villages } from './villages';
+import { Weather } from './weather';
 
 /** Nombre d'habitants au début d'un monde */
 export const INITIAL_PEOPLE = 20;
@@ -21,15 +22,15 @@ export const WALK_SPEED = 0.15;
 const MAX_WAIT = 30;
 
 /**
- * Faim à partir de laquelle un habitant cherche à manger (2 mois).
- * Une « portion » est donc une grosse réserve : la récolte d'une saison, pas un repas.
+ * Faim à partir de laquelle un habitant cherche à manger (6 mois).
+ * Une « portion » est donc une grosse réserve, de quoi tenir une demi-année, pas un repas.
  */
 export const HUNGRY_AT = 6 * TICKS_PER_MONTH;
 
-/** Faim à laquelle un habitant meurt (4 mois sans manger) */
+/** Faim à laquelle un habitant meurt (un an sans manger) */
 export const STARVATION = 12 * TICKS_PER_MONTH;
 
-/** Faim effacée par une portion de nourriture */
+/** Faim effacée par une portion de nourriture (6 mois) */
 export const PORTION_VALUE = 6 * TICKS_PER_MONTH;
 
 /** Âge adulte : à partir de 16 ans, on peut avoir des enfants */
@@ -48,7 +49,7 @@ const BIRTH_CHANCE = 1 / TICKS_PER_YEAR;
 /** Délai minimal entre deux enfants d'un même parent : 2 ans */
 export const BIRTH_COOLDOWN = 2 * TICKS_PER_YEAR;
 
-/** Un enfant fatigue : la faim du parent augmente d'autant */
+/** Un enfant fatigue : la faim du parent augmente d'autant (3 mois) */
 export const BIRTH_HUNGER = 3 * TICKS_PER_MONTH;
 
 /** Distance maximale entre les deux adultes, en tuiles */
@@ -197,6 +198,8 @@ export class Simulation {
   /** Nourriture disponible sur chaque tuile, en portions (même index que la grille du monde) */
   readonly food: Float32Array;
   readonly fire: Fire;
+  /** Le vent et les nuages */
+  readonly weather: Weather;
   private readonly random: Random;
   /** Nombre de pas joués depuis le début du monde : c'est lui qui donne la date et la saison */
   private elapsed = 0;
@@ -219,6 +222,8 @@ export class Simulation {
       this.food[i] = this.foodCapacity(i);
     }
     this.fire = new Fire(world);
+    // La météo a son propre hasard, lui aussi tiré de la graine du monde
+    this.weather = new Weather(world.width, world.height, seed ^ 0xc10d);
   }
 
   /** Nombre de pas joués depuis le début du monde */
@@ -268,6 +273,7 @@ export class Simulation {
 
   /** Un pas de simulation */
   tick(): void {
+    this.weather.tick(this.elapsed);
     this.growFood();
     this.fire.tick(this.random, this.burnedOut);
 

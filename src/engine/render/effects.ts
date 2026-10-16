@@ -1,4 +1,5 @@
 import { Random } from '../core/random';
+import { drawCloud } from './cloud-renderer';
 
 /** Durée d'un éclair à l'écran, en secondes */
 const LIGHTNING_DURATION = 0.4;
@@ -29,20 +30,6 @@ const DROP_LENGTH = 0.7;
 const SPLASH_DURATION = 0.25;
 /** Vitesse à laquelle le nuage et son ombre apparaissent et disparaissent (1 = en une seconde) */
 const CLOUD_FADE = 3;
-
-/**
- * Forme du nuage : des disques qui se chevauchent, en x, y et rayon,
- * exprimés en fraction du rayon de la pluie (le nuage grandit avec elle).
- */
-const CLOUD_PUFFS = [
-  [-0.55, 0.1, 0.35],
-  [-0.25, -0.12, 0.45],
-  [0.15, -0.2, 0.5],
-  [0.5, -0.02, 0.38],
-  [0.75, 0.15, 0.25],
-  [0, 0.15, 0.4],
-  [-0.8, 0.2, 0.22],
-] as const;
 
 /** Durée de la secousse de l'écran, en secondes */
 const SHAKE_DURATION = 0.7;
@@ -285,7 +272,7 @@ export class Effects {
     this.drawWaves(ctx, originX, originY, zoom);
     this.drawSmoke(ctx, originX, originY, zoom);
     this.drawRain(ctx, originX, originY, zoom);
-    this.drawCloud(ctx, originX, originY, zoom);
+    this.drawRainCloud(ctx, originX, originY, zoom);
 
     for (const bolt of this.bolts) {
       // 1 au moment de la frappe, puis s'efface jusqu'à 0
@@ -466,33 +453,21 @@ export class Effects {
    * Les gouttes partent jusqu'à DROP_HEIGHT tuiles plus haut et un peu à gauche (le vent) :
    * le nuage est placé là.
    */
-  private drawCloud(
+  private drawRainCloud(
     ctx: CanvasRenderingContext2D,
     originX: number,
     originY: number,
     zoom: number,
   ): void {
     if (this.cloud === 0) return;
-    const size = this.cloudRadius * zoom;
-    const cx = originX + (this.cloudX - DROP_HEIGHT * 0.2) * zoom;
-    const cy = originY + (this.cloudY - DROP_HEIGHT - 0.5) * zoom;
-
-    // Deux passes : le dessous gris, un peu décalé vers le bas, puis le dessus clair
-    for (const [shift, color] of [
-      [0.12, `rgba(120, 130, 150, ${0.9 * this.cloud})`],
-      [0, `rgba(235, 240, 248, ${0.95 * this.cloud})`],
-    ] as const) {
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      for (const [px, py, pr] of CLOUD_PUFFS) {
-        const x = cx + px * size;
-        const y = cy + (py + shift) * size;
-        // moveTo évite un trait entre deux disques du même tracé
-        ctx.moveTo(x + pr * size, y);
-        ctx.arc(x, y, pr * size, 0, Math.PI * 2);
-      }
-      ctx.fill();
-    }
+    const shape = {
+      x: originX + (this.cloudX - DROP_HEIGHT * 0.2) * zoom,
+      y: originY + (this.cloudY - DROP_HEIGHT - 0.5) * zoom,
+      size: this.cloudRadius * zoom,
+      stretch: 1,
+      mirrored: false,
+    };
+    drawCloud(ctx, shape, this.cloud);
   }
 
   private traceBolt(

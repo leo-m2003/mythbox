@@ -1,6 +1,7 @@
 import { Random } from './core/random';
 import { PointerInput } from './input/pointer-input';
 import { Camera, type Point } from './render/camera';
+import { drawCloudShadows, drawWeatherClouds } from './render/cloud-renderer';
 import { MapRenderer } from './render/map-renderer';
 import { drawPeople } from './render/people-renderer';
 import { drawVillages } from './render/village-renderer';
@@ -296,8 +297,11 @@ export class Engine {
     const oy = Math.round(origin.y) + shake.y;
     this.mapRenderer.draw(ctx, ox, oy, camera.zoom);
     this.fireRenderer.draw(ctx, ox, oy, camera.zoom);
+    // Les ombres des nuages sur le sol, puis les nuages dans le ciel, au-dessus des mortels
+    drawCloudShadows(ctx, this.simulation.weather, ox, oy, camera.zoom);
     drawVillages(ctx, this.simulation.villages, ox, oy, camera.zoom);
     drawPeople(ctx, this.simulation.people, ox, oy, camera.zoom);
+    drawWeatherClouds(ctx, this.simulation.weather, ox, oy, camera.zoom);
     this.effects.draw(ctx, ox, oy, camera.zoom);
 
     this.drawToolPreview();

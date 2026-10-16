@@ -269,6 +269,16 @@ describe('Simulation', () => {
     expect(sim.ticks).toBe(25);
   });
 
+  it('fait avancer la météo à chaque pas', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    // Un monde de 32 × 32 tuiles est trop petit pour avoir ses propres nuages : on en ajoute un
+    const cloud = { x: 10, y: 10, radius: 4, stretch: 1, mirrored: false, age: 0, life: 1000 };
+    sim.weather.clouds.push(cloud);
+    sim.tick();
+    expect(cloud.x).toBeCloseTo(10 + sim.weather.windX, 5);
+    expect(cloud.age).toBe(1);
+  });
+
   it('fait apparaître un groupe d’adultes de 16 à 30 ans', () => {
     const sim = new Simulation(grassWorldWithRiver(), 42);
     sim.spawnInitialGroup();
@@ -435,7 +445,7 @@ describe('Simulation', () => {
       sim.people.village[i] = v;
       sim.villages.join(v);
     }
-
+    // Comme pour le premier enfant : jusqu'à 20 000 pas, ils restent en âge d'avoir des enfants
     runUntil(sim, () => sim.people.count === 3, 20_000);
 
     expect(sim.people.count).toBe(3);
