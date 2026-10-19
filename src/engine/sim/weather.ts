@@ -34,6 +34,43 @@ export const MAX_WIND_SPEED = 0.06;
 /** Le vent tourne une fois par jour, d'au plus cet angle (en radians, environ 11°) */
 export const MAX_WIND_TURN = 0.2;
 
+/** Chance qu'un nouveau nuage soit un nuage de pluie, selon la saison : peu l'été, la saison sèche */
+export const SEASON_RAIN: Record<Season, number> = {
+  [Season.Spring]: 0.4,
+  [Season.Summer]: 0.1,
+  [Season.Autumn]: 0.5,
+  [Season.Winter]: 0.4,
+};
+
+/**
+ * Chance qu'un nouveau nuage soit un orage, selon la saison : surtout l'été.
+ * C'est indépendant de la pluie : un orage d'été est le plus souvent sec, et sa foudre allume des incendies.
+ * Sous un orage qui pleut, la terre est mouillée et ne prend pas feu.
+ */
+export const SEASON_STORMS: Record<Season, number> = {
+  [Season.Spring]: 0.05,
+  [Season.Summer]: 0.4,
+  [Season.Autumn]: 0.05,
+  [Season.Winter]: 0,
+};
+
+/** La pluie et la foudre tombent sous le cœur du nuage : un disque de cette part de son rayon */
+const RAIN_PART = 0.6;
+
+/** Chance, à chaque pas, que la foudre tombe sous un orage (en moyenne une fois tous les 6 jours) */
+export const STRIKE_CHANCE = 1 / (6 * TICKS_PER_DAY);
+
+/**
+ * Chance qu'un coup de foudre du ciel allume un feu, selon la saison : la terre sèche de l'été
+ * prend plus facilement. La sécheresse de l'étape 4 pourra l'augmenter.
+ */
+export const SEASON_IGNITION: Record<Season, number> = {
+  [Season.Spring]: 0.1,
+  [Season.Summer]: 0.3,
+  [Season.Autumn]: 0.1,
+  [Season.Winter]: 0.05,
+};
+
 /** Un nuage. Sa position est celle de son ombre au sol : le nuage lui-même est dessiné plus haut */
 export interface Cloud {
   /** Centre de l'ombre, en tuiles */
@@ -45,6 +82,10 @@ export interface Cloud {
   stretch: number;
   /** Forme retournée de gauche à droite : deux nuages voisins ne se ressemblent pas */
   mirrored: boolean;
+  /** Il pleut sous ce nuage */
+  rain: boolean;
+  /** Un orage : la foudre tombe sous ce nuage */
+  storm: boolean;
   /** Âge et durée de vie, en pas */
   age: number;
   life: number;
@@ -56,9 +97,33 @@ export function cloudOpacity(cloud: Cloud): number {
   return Math.max(0, Math.min(1, cloud.age / fade, (cloud.life - cloud.age) / fade));
 }
 
+/** Un nuage ne pleut et ne gronde qu'une fois formé, et plus dès qu'il commence à se dissiper */
+function isFormed(cloud: Cloud): boolean {
+  return cloudOpacity(cloud) === 1;
+}
+
+/** Vrai s'il pleut sous le nuage en ce moment */
+export function isRaining(cloud: Cloud): boolean {
+  return cloud.rain && isFormed(cloud);
+}
+
+/** Rayon du disque où tombent la pluie et la foudre, sous le nuage, en tuiles */
+export function rainRadius(cloud: Cloud): number {
+  return cloud.radius * RAIN_PART;
+}
+
+/** Une tuile frappée par la foudre */
+export interface Strike {
+  x: number;
+  y: number;
+  /** Vrai si la foudre allume un feu (quand la tuile peut brûler) */
+  ignites: boolean;
+}
+
 /**
- * Le temps qu'il fait : le vent et les nuages qu'il pousse.
- * Pas de DOM ici : la simulation la fait avancer à chaque pas, le rendu la dessine.
+ * Le temps qu'il fait : le vent, les nuages qu'il pousse, et la foudre des orages.
+ * Pas de DOM ici : la simulation la fait avancer à chaque pas et applique la pluie et la foudre
+ * au monde, le rendu la dessine.
  */
 export class Weather {
   readonly clouds: Cloud[] = [];
@@ -66,6 +131,8 @@ export class Weather {
   windAngle: number;
   /** Vitesse du vent, en tuiles par pas */
   windSpeed: number;
+  /** Les tuiles frappées par la foudre pendant le dernier pas */
+  readonly strikes: Strike[] = [];
   private readonly random: Random;
 
   constructor(
@@ -80,7 +147,7 @@ export class Weather {
 
     // Le monde naît avec le ciel du printemps, des nuages à tous les âges
     for (let n = 0; n < this.cloudTarget(Season.Spring); n++) {
-      const cloud = this.formCloud();
+      const cloud = this.formCloud(0);
       cloud.age = this.random.int(0, cloud.life - 1);
     }
   }
@@ -96,6 +163,7 @@ export class Weather {
 
   /** Un pas de météo. `tick` est le numéro du pas, qui donne la saison */
   tick(tick: number): void {
+    this.strikes.length = 0;
     if (tick % TICKS_PER_DAY === 0) {
       this.turnWind();
     }
@@ -110,6 +178,11 @@ export class Weather {
       cloud.age++;
       if (cloud.age >= cloud.life || this.isOffMap(cloud)) {
         this.clouds.splice(k, 1);
+        continue;
+      }
+      // Sous un orage, la foudre tombe de temps en temps
+      if (cloud.storm && isFormed(cloud) && this.random.chance(STRIKE_CHANCE)) {
+        this.strike(cloud, seasonAt(tick));
       }
     }
 
@@ -118,7 +191,7 @@ export class Weather {
       this.clouds.length < this.cloudTarget(seasonAt(tick)) &&
       this.random.chance(CLOUD_FORM_CHANCE)
     ) {
-      this.formCloud();
+      this.formCloud(tick);
     }
   }
 
@@ -137,16 +210,44 @@ export class Weather {
     );
   }
 
-  /** Un nouveau nuage se forme quelque part au-dessus du monde */
-  private formCloud(): Cloud {
+  /**
+   * La foudre tombe sur une tuile au hasard sous l'orage, si elle est dans la carte.
+   * Les tuiles possibles sont celles que la pluie arrose : à rainRadius du centre de la tuile du nuage.
+   */
+  private strike(cloud: Cloud, season: Season): void {
+    const radius = rainRadius(cloud);
+    const r = Math.floor(radius);
+    // Une tuile au hasard dans le carré autour du nuage, jusqu'à en trouver une dans le disque
+    let dx: number;
+    let dy: number;
+    do {
+      dx = this.random.int(-r, r);
+      dy = this.random.int(-r, r);
+    } while (dx * dx + dy * dy > radius * radius);
+    const x = Math.floor(cloud.x) + dx;
+    const y = Math.floor(cloud.y) + dy;
+    if (x >= 0 && y >= 0 && x < this.width && y < this.height) {
+      this.strikes.push({ x, y, ignites: this.random.chance(SEASON_IGNITION[season]) });
+    }
+  }
+
+  /**
+   * Un nouveau nuage se forme quelque part au-dessus du monde, au pas `tick`.
+   * Il pleut ou gronde selon la saison du milieu de sa vie : c'est là qu'on le verra le plus.
+   */
+  private formCloud(tick: number): Cloud {
+    const life = this.random.int(MIN_CLOUD_LIFE, MAX_CLOUD_LIFE);
+    const season = seasonAt(tick + life / 2);
     const cloud: Cloud = {
       x: this.random.range(0, this.width),
       y: this.random.range(0, this.height),
       radius: this.random.range(MIN_CLOUD_RADIUS, MAX_CLOUD_RADIUS),
       stretch: this.random.range(1, 1.4),
       mirrored: this.random.chance(0.5),
+      rain: this.random.chance(SEASON_RAIN[season]),
+      storm: this.random.chance(SEASON_STORMS[season]),
       age: 0,
-      life: this.random.int(MIN_CLOUD_LIFE, MAX_CLOUD_LIFE),
+      life,
     };
     this.clouds.push(cloud);
     return cloud;

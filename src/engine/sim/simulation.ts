@@ -7,7 +7,7 @@ import { Fire, SCORCH_TICKS } from './fire';
 import { People } from './people';
 import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 import { Villages } from './villages';
-import { Weather } from './weather';
+import { isRaining, rainRadius, Weather, type Strike } from './weather';
 
 /** Nombre d'habitants au début d'un monde */
 export const INITIAL_PEOPLE = 20;
@@ -178,6 +178,15 @@ export const SEASON_FOOD_GROWTH: Record<Season, number> = {
 };
 
 /**
+ * La pluie du ciel est plus douce que celle du dieu : nourriture apportée à chaque pas, par tuile arrosée.
+ * Un nuage de pluie qui passe nourrit la terre comme plusieurs mois de repousse.
+ */
+export const SKY_RAIN_FOOD = 25 * FOOD_REGROWTH;
+
+/** Sous la pluie du ciel, la terre brûlée s'efface 3 fois plus vite : 2 pas de plus à chaque pas */
+export const SKY_RAIN_REGROWTH = 2;
+
+/**
  * Nourriture maximale par type de terrain, rangée dans un petit tableau typé.
  * growFood() la lit pour chaque tuile à chaque pas : c'est bien plus rapide
  * que d'aller chercher TERRAIN_INFO[terrain].food 49 152 fois.
@@ -200,6 +209,8 @@ export class Simulation {
   readonly fire: Fire;
   /** Le vent et les nuages */
   readonly weather: Weather;
+  /** Coups de foudre des orages pas encore dessinés : le moteur les prend avec takeStrikes() */
+  private strikes: Strike[] = [];
   private readonly random: Random;
   /** Nombre de pas joués depuis le début du monde : c'est lui qui donne la date et la saison */
   private elapsed = 0;
@@ -274,6 +285,7 @@ export class Simulation {
   /** Un pas de simulation */
   tick(): void {
     this.weather.tick(this.elapsed);
+    this.applyWeather();
     this.growFood();
     this.fire.tick(this.random, this.burnedOut);
 
@@ -329,8 +341,9 @@ export class Simulation {
   /**
    * La foudre de Zeus frappe la tuile (x, y) : les mortels à LIGHTNING_RADIUS tuiles au plus
    * meurent, la nourriture des tuiles touchées brûle, et la tuile frappée prend feu si elle le peut.
+   * La foudre des orages n'allume pas toujours de feu : `ignites` le dit.
    */
-  strikeLightning(x: number, y: number): PowerResult {
+  strikeLightning(x: number, y: number, ignites = true): PowerResult {
     const result = noEffect();
     // Personne n'échappe à la foudre
     const struck = this.peopleAround(x, y, LIGHTNING_RADIUS, () => 1);
@@ -340,7 +353,7 @@ export class Simulation {
     this.forEachTileAround(x, y, LIGHTNING_RADIUS, (i) => {
       this.food[i] = 0;
     });
-    if (this.fire.ignite(this.world.index(x, y))) {
+    if (ignites && this.fire.ignite(this.world.index(x, y))) {
       result.tilesIgnited = 1;
     }
     return result;
@@ -366,24 +379,9 @@ export class Simulation {
     // La pluie ne tue personne
     result.mostAffectedVillage = this.peopleAround(x, y, RAIN_RADIUS, () => 0).mostAffectedVillage;
 
-    const fire = this.fire;
     // Au moins un pas par image, sinon une image très courte ne ferait rien du tout
     const regrowth = Math.max(1, Math.round(RAIN_REGROWTH * dt));
-    this.forEachTileAround(x, y, RAIN_RADIUS, (i) => {
-      // Mouillée, la tuile ne pourra pas reprendre feu tout de suite
-      fire.soak(i);
-      if (fire.burning[i] > 0) {
-        fire.extinguish(i);
-        result.tilesExtinguished++;
-      } else if (fire.scorched[i] > 0) {
-        // Rien ne pousse encore : la pluie raccourcit d'abord l'attente
-        fire.regrow(i, regrowth);
-      } else {
-        const before = this.food[i];
-        this.food[i] = Math.min(this.foodCapacity(i), before + RAIN_FOOD * dt);
-        result.foodGiven += this.food[i] - before;
-      }
-    });
+    this.water(x, y, RAIN_RADIUS, RAIN_FOOD * dt, regrowth, result);
     return result;
   }
 
@@ -478,6 +476,62 @@ export class Simulation {
     const rect = this.dirty;
     this.dirty = null;
     return rect;
+  }
+
+  /** Renvoie les tuiles frappées par la foudre des orages depuis le dernier appel (puis les oublie) */
+  takeStrikes(): Strike[] {
+    const strikes = this.strikes;
+    this.strikes = [];
+    return strikes;
+  }
+
+  /**
+   * Le ciel agit sur le monde : la pluie arrose sous les nuages de pluie, et la foudre des orages
+   * frappe comme celle de Zeus. La pluie d'abord : sous un orage qui pleut, la terre mouillée ne prend pas feu.
+   */
+  private applyWeather(): void {
+    for (const cloud of this.weather.clouds) {
+      if (isRaining(cloud)) {
+        const x = Math.floor(cloud.x);
+        const y = Math.floor(cloud.y);
+        this.water(x, y, rainRadius(cloud), SKY_RAIN_FOOD, SKY_RAIN_REGROWTH, noEffect());
+      }
+    }
+    for (const strike of this.weather.strikes) {
+      this.strikeLightning(strike.x, strike.y, strike.ignites);
+      this.strikes.push(strike);
+    }
+  }
+
+  /**
+   * La pluie tombe sur les tuiles à `radius` de (x, y) : elle éteint le feu et mouille la terre
+   * (qui ne peut plus brûler pendant un mois), rapproche de `regrowth` pas la fin de la terre brûlée,
+   * et ajoute `food` portions de nourriture aux autres tuiles. Ses effets s'ajoutent à `result`.
+   */
+  private water(
+    x: number,
+    y: number,
+    radius: number,
+    food: number,
+    regrowth: number,
+    result: PowerResult,
+  ): void {
+    const fire = this.fire;
+    this.forEachTileAround(x, y, radius, (i) => {
+      // Mouillée, la tuile ne pourra pas reprendre feu tout de suite
+      fire.soak(i);
+      if (fire.burning[i] > 0) {
+        fire.extinguish(i);
+        result.tilesExtinguished++;
+      } else if (fire.scorched[i] > 0) {
+        // Rien ne pousse encore : la pluie raccourcit d'abord l'attente
+        fire.regrow(i, regrowth);
+      } else {
+        const before = this.food[i];
+        this.food[i] = Math.min(this.foodCapacity(i), before + food);
+        result.foodGiven += this.food[i] - before;
+      }
+    });
   }
 
   /**

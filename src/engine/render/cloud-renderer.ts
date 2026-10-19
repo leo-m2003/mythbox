@@ -15,7 +15,29 @@ const CLOUD_PUFFS = [
 ] as const;
 
 /** Altitude des nuages de la météo, en tuiles : ils flottent au nord-ouest de leur ombre */
-const CLOUD_HEIGHT = 6;
+export const CLOUD_HEIGHT = 6;
+
+/** Couleurs d'un nuage, en RGB : le dessous (dans l'ombre), puis le dessus */
+export type CloudColors = readonly [
+  readonly [number, number, number],
+  readonly [number, number, number],
+];
+
+/** Un nuage de beau temps : blanc */
+export const FAIR_CLOUD: CloudColors = [
+  [120, 130, 150],
+  [235, 240, 248],
+];
+/** Un nuage de pluie : gris */
+export const RAIN_CLOUD: CloudColors = [
+  [85, 95, 115],
+  [170, 178, 192],
+];
+/** Un orage : gris sombre */
+export const STORM_CLOUD: CloudColors = [
+  [45, 48, 62],
+  [100, 104, 120],
+];
 
 /** Zoom (pixels par tuile) à partir duquel les nuages s'estompent, pour ne pas cacher les mortels */
 const CLEAR_FROM_ZOOM = 8;
@@ -54,12 +76,18 @@ function traceCloud(ctx: CanvasRenderingContext2D, shape: CloudShape, shift: num
 }
 
 /** Dessine un nuage en deux passes : le dessous gris, un peu décalé vers le bas, puis le dessus clair */
-export function drawCloud(ctx: CanvasRenderingContext2D, shape: CloudShape, opacity: number): void {
-  for (const [shift, color] of [
-    [0.12, `rgba(120, 130, 150, ${0.9 * opacity})`],
-    [0, `rgba(235, 240, 248, ${0.95 * opacity})`],
+export function drawCloud(
+  ctx: CanvasRenderingContext2D,
+  shape: CloudShape,
+  opacity: number,
+  colors: CloudColors = FAIR_CLOUD,
+): void {
+  const [under, top] = colors;
+  for (const [shift, [r, g, b], alpha] of [
+    [0.12, under, 0.9],
+    [0, top, 0.95],
   ] as const) {
-    ctx.fillStyle = color;
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha * opacity})`;
     ctx.beginPath();
     traceCloud(ctx, shape, shift);
     ctx.fill();
@@ -99,7 +127,10 @@ export function drawWeatherClouds(
 ): void {
   // Plus on zoome, plus ils sont transparents : on voit les mortels à travers
   const clearing = (zoom - CLEAR_FROM_ZOOM) / (CLEAR_AT_ZOOM - CLEAR_FROM_ZOOM);
-  const zoomOpacity = Math.max(MIN_ZOOMED_OPACITY, Math.min(1, 1 - clearing * (1 - MIN_ZOOMED_OPACITY)));
+  const zoomOpacity = Math.max(
+    MIN_ZOOMED_OPACITY,
+    Math.min(1, 1 - clearing * (1 - MIN_ZOOMED_OPACITY)),
+  );
 
   for (const cloud of weather.clouds) {
     const shape = {
@@ -109,6 +140,7 @@ export function drawWeatherClouds(
       stretch: cloud.stretch,
       mirrored: cloud.mirrored,
     };
-    drawCloud(ctx, shape, 0.8 * cloudOpacity(cloud) * zoomOpacity);
+    const colors = cloud.storm ? STORM_CLOUD : cloud.rain ? RAIN_CLOUD : FAIR_CLOUD;
+    drawCloud(ctx, shape, 0.8 * cloudOpacity(cloud) * zoomOpacity, colors);
   }
 }

@@ -3,10 +3,13 @@ import { Season, seasonAt } from './calendar';
 import { TICKS_PER_DAY, TICKS_PER_YEAR } from './sim-clock';
 import {
   cloudOpacity,
+  isRaining,
   MAX_CLOUD_RADIUS,
   MAX_WIND_SPEED,
   MAX_WIND_TURN,
   MIN_WIND_SPEED,
+  rainRadius,
+  SEASON_IGNITION,
   Weather,
   type Cloud,
 } from './weather';
@@ -59,7 +62,17 @@ describe('Météo', () => {
   });
 
   it('forme les nuages peu à peu, puis les dissipe', () => {
-    const cloud: Cloud = { x: 0, y: 0, radius: 5, stretch: 1, mirrored: false, age: 0, life: 400 };
+    const cloud: Cloud = {
+      x: 0,
+      y: 0,
+      radius: 5,
+      stretch: 1,
+      mirrored: false,
+      rain: false,
+      storm: false,
+      age: 0,
+      life: 400,
+    };
     expect(cloudOpacity(cloud)).toBe(0);
     cloud.age = 30;
     expect(cloudOpacity(cloud)).toBeCloseTo(0.5, 5);
@@ -69,6 +82,77 @@ describe('Météo', () => {
     expect(cloudOpacity(cloud)).toBeCloseTo(0.5, 5);
     cloud.age = 400;
     expect(cloudOpacity(cloud)).toBe(0);
+  });
+
+  it('ne pleut que sous un nuage de pluie formé', () => {
+    const cloud: Cloud = {
+      x: 0,
+      y: 0,
+      radius: 5,
+      stretch: 1,
+      mirrored: false,
+      rain: true,
+      storm: false,
+      age: 30,
+      life: 400,
+    };
+    // Il se forme encore, puis il est formé, puis il se dissipe
+    expect(isRaining(cloud)).toBe(false);
+    cloud.age = 200;
+    expect(isRaining(cloud)).toBe(true);
+    cloud.age = 370;
+    expect(isRaining(cloud)).toBe(false);
+    // Un nuage de beau temps ne pleut jamais
+    cloud.age = 200;
+    cloud.rain = false;
+    expect(isRaining(cloud)).toBe(false);
+    // La pluie tombe sous le cœur du nuage
+    expect(rainRadius(cloud)).toBeCloseTo(3, 5);
+  });
+
+  it('fait tomber la foudre sous les orages, dans la carte, surtout l’été', () => {
+    const w = weather();
+    const strikes = [0, 0, 0, 0];
+    for (let t = 0; t < 20 * TICKS_PER_YEAR; t++) {
+      w.tick(t);
+      for (const strike of w.strikes) {
+        strikes[seasonAt(t)]++;
+        expect(strike.x).toBeGreaterThanOrEqual(0);
+        expect(strike.x).toBeLessThan(256);
+        expect(strike.y).toBeGreaterThanOrEqual(0);
+        expect(strike.y).toBeLessThan(192);
+        // Sous un orage, dans le disque de pluie (à une tuile près : la foudre tombe sur une tuile entière)
+        const underStorm = w.clouds.some(
+          (cloud) =>
+            cloud.storm &&
+            Math.hypot(strike.x + 0.5 - cloud.x, strike.y + 0.5 - cloud.y) <= rainRadius(cloud) + 1,
+        );
+        expect(underStorm).toBe(true);
+      }
+    }
+    expect(strikes[Season.Summer]).toBeGreaterThan(2 * strikes[Season.Spring]);
+    expect(strikes[Season.Summer]).toBeGreaterThan(2 * strikes[Season.Winter]);
+  });
+
+  it('n’allume pas toujours de feu, et plus souvent l’été', () => {
+    const w = weather();
+    const strikes = [0, 0, 0, 0];
+    const fires = [0, 0, 0, 0];
+    for (let t = 0; t < 20 * TICKS_PER_YEAR; t++) {
+      w.tick(t);
+      for (const strike of w.strikes) {
+        strikes[seasonAt(t)]++;
+        if (strike.ignites) fires[seasonAt(t)]++;
+      }
+    }
+    // L'été, environ SEASON_IGNITION[Season.Summer] des coups de foudre allument un feu
+    const summer = fires[Season.Summer] / strikes[Season.Summer];
+    expect(summer).toBeGreaterThan(SEASON_IGNITION[Season.Summer] - 0.1);
+    expect(summer).toBeLessThan(SEASON_IGNITION[Season.Summer] + 0.1);
+    // Plus de feux l'été que pendant tout le reste de l'année
+    expect(fires[Season.Summer]).toBeGreaterThan(
+      fires[Season.Spring] + fires[Season.Autumn] + fires[Season.Winter],
+    );
   });
 
   it('retire les nuages qui ont fini leur vie ou quitté la carte', () => {

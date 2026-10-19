@@ -23,9 +23,11 @@ import {
   RAIN_FOOD,
   RAIN_RADIUS,
   Simulation,
+  SKY_RAIN_FOOD,
   STARVATION,
   WANDER_RADIUS,
 } from './simulation';
+import type { Cloud, Strike } from './weather';
 
 /** Un petit monde plat de prairie, traversé par une rivière verticale en x = 16 et 17 */
 function grassWorldWithRiver(): World {
@@ -38,6 +40,20 @@ function grassWorldWithRiver(): World {
   }
   world.refreshAllTerrain();
   return world;
+}
+
+/** Un petit monde plat de prairie, sans rivière */
+function grassWorld(): World {
+  const world = new World(32, 32, 0, 0.38);
+  world.elevation.fill(0.5);
+  world.moisture.fill(0.3);
+  world.refreshAllTerrain();
+  return world;
+}
+
+/** Un nuage formé (il peut pleuvoir et gronder) au-dessus de (x, y) */
+function formedCloud(x: number, y: number, rain: boolean, storm: boolean): Cloud {
+  return { x, y, radius: 5, stretch: 1, mirrored: false, rain, storm, age: 500, life: 1000 };
 }
 
 /** Une île de sable plat (aucune nourriture), avec éventuellement une tuile de prairie */
@@ -272,11 +288,58 @@ describe('Simulation', () => {
   it('fait avancer la météo à chaque pas', () => {
     const sim = new Simulation(grassWorldWithRiver(), 1);
     // Un monde de 32 × 32 tuiles est trop petit pour avoir ses propres nuages : on en ajoute un
-    const cloud = { x: 10, y: 10, radius: 4, stretch: 1, mirrored: false, age: 0, life: 1000 };
+    const cloud = { ...formedCloud(10, 10, false, false), age: 0 };
     sim.weather.clouds.push(cloud);
     sim.tick();
     expect(cloud.x).toBeCloseTo(10 + sim.weather.windX, 5);
     expect(cloud.age).toBe(1);
+  });
+
+  it('arrose la terre sous les nuages de pluie, pas sous les autres', () => {
+    const world = grassWorld();
+    const sim = new Simulation(world, 1);
+    // Un monde de 32 × 32 tuiles est trop petit pour avoir ses propres nuages : on en ajoute
+    sim.weather.clouds.push(
+      formedCloud(8.5, 8.5, true, false),
+      formedCloud(24.5, 24.5, false, false),
+    );
+    const under = world.index(8, 8);
+    sim.food[under] = 0;
+    const burning = world.index(9, 8);
+    sim.fire.ignite(burning);
+    sim.tick();
+    // Comme la pluie du dieu : le feu s'éteint, la terre est mouillée et nourrie
+    expect(sim.fire.burning[burning]).toBe(0);
+    expect(sim.fire.wet[under]).toBeGreaterThan(0);
+    expect(sim.food[under]).toBeGreaterThanOrEqual(SKY_RAIN_FOOD);
+    // Sous le nuage de beau temps, rien
+    expect(sim.fire.wet[world.index(24, 24)]).toBe(0);
+  });
+
+  it('fait tomber la foudre des orages sur le monde', () => {
+    const world = grassWorld();
+    const sim = new Simulation(world, 1);
+    sim.weather.clouds.push(formedCloud(16.5, 16.5, false, true));
+    let strikes: Strike[] = [];
+    runUntil(sim, () => (strikes = sim.takeStrikes()).length > 0, 300);
+    expect(strikes.length).toBeGreaterThan(0);
+    // Comme la foudre de Zeus : la nourriture brûle, et la prairie prend feu si le tirage le dit
+    const { x, y, ignites } = strikes[0];
+    expect(sim.food[world.index(x, y)]).toBeLessThan(0.01);
+    expect(sim.fire.burning[world.index(x, y)] > 0).toBe(ignites);
+    // Une fois pris, les coups de foudre sont oubliés
+    expect(sim.takeStrikes()).toEqual([]);
+  });
+
+  it('n’allume pas de feu sous un orage qui pleut', () => {
+    const world = grassWorld();
+    const sim = new Simulation(world, 1);
+    sim.weather.clouds.push(formedCloud(16.5, 16.5, true, true));
+    let strikes: Strike[] = [];
+    runUntil(sim, () => (strikes = sim.takeStrikes()).length > 0, 300);
+    expect(strikes.length).toBeGreaterThan(0);
+    // La pluie a mouillé la terre avant que la foudre tombe
+    expect(sim.fire.count).toBe(0);
   });
 
   it('fait apparaître un groupe d’adultes de 16 à 30 ans', () => {
@@ -552,6 +615,18 @@ describe('Simulation', () => {
     const beach = new Simulation(sandWorld(), 1);
     expect(beach.strikeLightning(5, 5).tilesIgnited).toBe(0);
     expect(beach.fire.count).toBe(0);
+  });
+
+  it('peut frapper sans allumer de feu', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+    addAdult(sim, 5, 5);
+    const result = sim.strikeLightning(5, 5, false);
+    // Le mortel meurt et la nourriture brûle, mais la prairie ne prend pas feu
+    expect(result.victims).toBe(1);
+    expect(sim.food[world.index(5, 5)]).toBe(0);
+    expect(result.tilesIgnited).toBe(0);
+    expect(sim.fire.count).toBe(0);
   });
 
   it('le pouvoir Incendie embrase la tuile visée et ses 4 voisines, sauf l’eau', () => {

@@ -17,6 +17,7 @@ import {
   RAIN_RADIUS,
   Simulation,
 } from './sim/simulation';
+import { isRaining, rainRadius } from './sim/weather';
 import { HAND, PowerKind, type Tool } from './tool';
 import { applyBrush } from './world/brushes';
 import { generateWorld } from './world/generator';
@@ -202,6 +203,14 @@ export class Engine {
     const changed = this.simulation.takeDirtyRect();
     if (changed) {
       this.mapRenderer.redrawRect(changed);
+    }
+    // Les éclairs des orages tombés pendant ces pas
+    for (const strike of this.simulation.takeStrikes()) {
+      this.effects.addLightning(strike.x + 0.5, strike.y + 0.5, true);
+    }
+    // La pluie tombe sous les nuages de pluie, même en pause (comme les flammes scintillent)
+    for (const cloud of this.simulation.weather.clouds) {
+      if (isRaining(cloud)) this.effects.skyRain(cloud.x, cloud.y, rainRadius(cloud), dt);
     }
     // Les couleurs de la carte suivent les saisons
     this.mapRenderer.setTime(this.simulation.ticks);
