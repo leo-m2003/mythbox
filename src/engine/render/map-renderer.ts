@@ -36,12 +36,13 @@ export class MapRenderer {
   }
 
   /**
-   * Suit les saisons : à appeler à chaque image avec le pas en cours.
+   * Suit les saisons et la sécheresse : à appeler à chaque image avec le pas en cours
+   * et la sécheresse de la terre (de 0 à 1).
    * Toute la carte est redessinée, mais seulement quand une couleur a changé :
-   * pendant le dernier mois de chaque saison, jamais le reste du temps.
+   * pendant le dernier mois de chaque saison, et quand la terre sèche ou reverdit.
    */
-  setTime(tick: number): void {
-    const colors = seasonColors(tick);
+  setTime(tick: number, dryness: number): void {
+    const colors = seasonColors(tick, dryness);
     if (colors.every((color, terrain) => sameColor(color, this.colors[terrain]))) return;
     this.colors = colors;
     this.redrawAll();

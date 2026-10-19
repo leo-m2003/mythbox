@@ -177,6 +177,9 @@ export const SEASON_FOOD_GROWTH: Record<Season, number> = {
   [Season.Winter]: 0.2,
 };
 
+/** Quand la terre est desséchée par la sécheresse, la nourriture repousse 4 fois moins */
+export const DROUGHT_FOOD_GROWTH = 0.25;
+
 /**
  * La pluie du ciel est plus douce que celle du dieu : nourriture apportée à chaque pas, par tuile arrosée.
  * Un nuage de pluie qui passe nourrit la terre comme plusieurs mois de repousse.
@@ -371,7 +374,7 @@ export class Simulation {
   /**
    * La pluie tombe pendant `dt` secondes sur les tuiles à RAIN_RADIUS de (x, y) :
    * elle éteint le feu et mouille la terre (qui ne peut plus brûler pendant un mois),
-   * fait repousser l'herbe sur la terre brûlée, et nourrit la terre.
+   * fait repousser l'herbe sur la terre brûlée, et nourrit la terre. Elle brise la sécheresse.
    * Comme les pinceaux, elle suit le temps réel : on l'appelle à chaque image tant que le clic est maintenu.
    */
   rain(x: number, y: number, dt: number): PowerResult {
@@ -507,6 +510,7 @@ export class Simulation {
    * La pluie tombe sur les tuiles à `radius` de (x, y) : elle éteint le feu et mouille la terre
    * (qui ne peut plus brûler pendant un mois), rapproche de `regrowth` pas la fin de la terre brûlée,
    * et ajoute `food` portions de nourriture aux autres tuiles. Ses effets s'ajoutent à `result`.
+   * Si elle tombe sur l'île, et pas seulement sur la mer, elle brise la sécheresse.
    */
   private water(
     x: number,
@@ -517,7 +521,10 @@ export class Simulation {
     result: PowerResult,
   ): void {
     const fire = this.fire;
+    const terrain = this.world.terrain;
+    let onLand = false;
     this.forEachTileAround(x, y, radius, (i) => {
+      if (terrain[i] > Terrain.ShallowWater) onLand = true;
       // Mouillée, la tuile ne pourra pas reprendre feu tout de suite
       fire.soak(i);
       if (fire.burning[i] > 0) {
@@ -532,6 +539,7 @@ export class Simulation {
         result.foodGiven += this.food[i] - before;
       }
     });
+    if (onLand) this.weather.rainFell();
   }
 
   /**
@@ -818,7 +826,9 @@ export class Simulation {
    * Sur la terre brûlée, rien ne repousse tant qu'elle n'a pas récupéré.
    */
   private growFood(): void {
-    const regrowth = FOOD_REGROWTH * SEASON_FOOD_GROWTH[seasonAt(this.elapsed)];
+    // La sécheresse freine la repousse, d'autant plus que la terre est sèche
+    const drought = 1 - (1 - DROUGHT_FOOD_GROWTH) * this.weather.dryness;
+    const regrowth = FOOD_REGROWTH * SEASON_FOOD_GROWTH[seasonAt(this.elapsed)] * drought;
     const food = this.food;
     const terrain = this.world.terrain;
     const scorched = this.fire.scorched;

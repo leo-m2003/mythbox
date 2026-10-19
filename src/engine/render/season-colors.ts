@@ -21,6 +21,13 @@ const SEASON_COLORS: Partial<Record<Terrain, readonly [Rgb, Rgb, Rgb, Rgb]>> = {
   [Terrain.Hills]: [spring(Terrain.Hills), [142, 126, 82], [136, 112, 78], [118, 116, 108]],
 };
 
+/** Couleur des mêmes terrains pendant la sécheresse : l'herbe grillée, les arbres ternis */
+const DROUGHT_COLORS: Partial<Record<Terrain, Rgb>> = {
+  [Terrain.Grass]: [166, 150, 80],
+  [Terrain.Forest]: [94, 96, 48],
+  [Terrain.Hills]: [152, 126, 82],
+};
+
 /** Part de la saison pendant laquelle ses couleurs ne bougent pas : ses deux premiers mois */
 const STEADY_PART = 2 / 3;
 
@@ -28,8 +35,9 @@ const STEADY_PART = 2 / 3;
  * Couleur de chaque terrain au pas `tick`, rangée comme l'enum Terrain.
  * Une saison garde ses couleurs pendant ses deux premiers mois. Pendant le troisième,
  * elles glissent vers celles de la saison suivante, qui sont là dès son premier jour.
+ * `dryness` (de 0 à 1) dit à quel point la sécheresse a desséché la terre.
  */
-export function seasonColors(tick: number): Rgb[] {
+export function seasonColors(tick: number, dryness = 0): Rgb[] {
   const tickOfYear = tick % TICKS_PER_YEAR;
   const season = Math.floor(tickOfYear / TICKS_PER_SEASON) as Season;
   const next = ((season + 1) % SEASONS_PER_YEAR) as Season;
@@ -41,7 +49,10 @@ export function seasonColors(tick: number): Rgb[] {
   // Object.values parcourt les terrains dans l'ordre 0 à 7, comme FOOD_CAPACITY dans la simulation
   return Object.values(TERRAIN_INFO).map((info, terrain) => {
     const colors = SEASON_COLORS[terrain as Terrain];
-    return colors ? mix(colors[season], colors[next], blend) : info.color;
+    const dry = DROUGHT_COLORS[terrain as Terrain];
+    if (!colors || !dry) return info.color;
+    // La sécheresse grille la végétation, d'autant plus que la terre est sèche
+    return mix(mix(colors[season], colors[next], blend), dry, dryness);
   });
 }
 

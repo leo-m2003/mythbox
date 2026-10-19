@@ -70,6 +70,19 @@ describe('Couleurs des saisons', () => {
     }
   });
 
+  it('grille la végétation pendant la sécheresse, d’autant plus que la terre est sèche', () => {
+    const summer = seasonColors(SUMMER);
+    const drying = seasonColors(SUMMER, 0.5);
+    const dry = seasonColors(SUMMER, 1);
+    // L'herbe grillée : plus de rouge, de plus en plus
+    expect(drying[Terrain.Grass][0]).toBeGreaterThan(summer[Terrain.Grass][0] + 5);
+    expect(dry[Terrain.Grass][0]).toBeGreaterThan(drying[Terrain.Grass][0] + 5);
+    // Ni l'eau, ni la plage, ni la roche, ni les sommets
+    for (const terrain of UNCHANGING) {
+      expect(dry[terrain]).toEqual(summer[terrain]);
+    }
+  });
+
   it('compare deux couleurs', () => {
     expect(sameColor([1, 2, 3], [1, 2, 3])).toBe(true);
     expect(sameColor([1, 2, 3], [1, 2, 4])).toBe(false);

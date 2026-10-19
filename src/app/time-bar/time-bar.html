@@ -5,6 +5,13 @@
   <span class="stat"
     ><span class="value season">{{ seasonNames[game.season()] }}</span></span
   >
+  @if (game.drought()) {
+    <span
+      class="stat drought"
+      title="Pas de pluie sur l'île depuis une saison : la nourriture repousse moins, et le feu prend plus facilement"
+      >Sécheresse</span
+    >
+  }
   <span class="stat"
     >Mois <span class="value short">{{ game.month() }}</span></span
   >

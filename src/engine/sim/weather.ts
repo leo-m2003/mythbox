@@ -1,5 +1,5 @@
 import { Random } from '../core/random';
-import { Season, seasonAt } from './calendar';
+import { Season, seasonAt, TICKS_PER_SEASON } from './calendar';
 import { TICKS_PER_DAY, TICKS_PER_MONTH } from './sim-clock';
 
 /**
@@ -62,7 +62,7 @@ export const STRIKE_CHANCE = 1 / (6 * TICKS_PER_DAY);
 
 /**
  * Chance qu'un coup de foudre du ciel allume un feu, selon la saison : la terre sèche de l'été
- * prend plus facilement. La sécheresse de l'étape 4 pourra l'augmenter.
+ * prend plus facilement. Pendant une sécheresse, elle augmente encore (DROUGHT_IGNITION).
  */
 export const SEASON_IGNITION: Record<Season, number> = {
   [Season.Spring]: 0.1,
@@ -70,6 +70,15 @@ export const SEASON_IGNITION: Record<Season, number> = {
   [Season.Autumn]: 0.1,
   [Season.Winter]: 0.05,
 };
+
+/** Après une saison entière (30 jours) sans pluie sur l'île, l'été tourne à la sécheresse */
+export const DROUGHT_TICKS = TICKS_PER_SEASON;
+
+/** Pendant une sécheresse, la terre sèche en 10 jours. Après la pluie, elle reverdit en 10 jours */
+export const DRYING_TICKS = 10 * TICKS_PER_DAY;
+
+/** Quand la terre est desséchée, la foudre allume deux fois plus de feux qu'avec SEASON_IGNITION */
+export const DROUGHT_IGNITION = 2;
 
 /** Un nuage. Sa position est celle de son ombre au sol : le nuage lui-même est dessiné plus haut */
 export interface Cloud {
@@ -121,7 +130,7 @@ export interface Strike {
 }
 
 /**
- * Le temps qu'il fait : le vent, les nuages qu'il pousse, et la foudre des orages.
+ * Le temps qu'il fait : le vent, les nuages qu'il pousse, la foudre des orages et la sécheresse.
  * Pas de DOM ici : la simulation la fait avancer à chaque pas et applique la pluie et la foudre
  * au monde, le rendu la dessine.
  */
@@ -133,6 +142,15 @@ export class Weather {
   windSpeed: number;
   /** Les tuiles frappées par la foudre pendant le dernier pas */
   readonly strikes: Strike[] = [];
+  /** Pas depuis la dernière pluie sur l'île */
+  dryTicks = 0;
+  /**
+   * Vrai pendant une sécheresse : elle commence l'été, après une saison sans pluie sur l'île,
+   * et dure jusqu'à la prochaine pluie
+   */
+  drought = false;
+  /** La terre, de 0 (normale) à 1 (desséchée) : elle sèche pendant la sécheresse, puis reverdit */
+  dryness = 0;
   private readonly random: Random;
 
   constructor(
@@ -167,6 +185,7 @@ export class Weather {
     if (tick % TICKS_PER_DAY === 0) {
       this.turnWind();
     }
+    this.dryOut(seasonAt(tick));
 
     const dx = this.windX;
     const dy = this.windY;
@@ -195,6 +214,15 @@ export class Weather {
     }
   }
 
+  /**
+   * Il a plu sur l'île : la sécheresse est brisée, et la terre reverdit peu à peu.
+   * C'est la simulation qui l'appelle, car c'est elle qui sait où est la terre.
+   */
+  rainFell(): void {
+    this.dryTicks = 0;
+    this.drought = false;
+  }
+
   /** Nombre de nuages vers lequel tend le ciel à cette saison, selon la taille de la carte */
   cloudTarget(season: Season): number {
     return Math.round((SEASON_CLOUDS[season] * this.width * this.height) / 10_000);
@@ -208,6 +236,17 @@ export class Weather {
       MAX_WIND_SPEED,
       Math.max(MIN_WIND_SPEED, this.windSpeed + this.random.range(-gust, gust)),
     );
+  }
+
+  /** Un pas de plus sans pluie : l'été, au bout d'une saison sans pluie, c'est la sécheresse */
+  private dryOut(season: Season): void {
+    this.dryTicks++;
+    if (season === Season.Summer && this.dryTicks >= DROUGHT_TICKS) {
+      this.drought = true;
+    }
+    // La terre sèche pendant la sécheresse, et reverdit après, à la même vitesse
+    const change = (this.drought ? 1 : -1) / DRYING_TICKS;
+    this.dryness = Math.min(1, Math.max(0, this.dryness + change));
   }
 
   /**
@@ -227,7 +266,9 @@ export class Weather {
     const x = Math.floor(cloud.x) + dx;
     const y = Math.floor(cloud.y) + dy;
     if (x >= 0 && y >= 0 && x < this.width && y < this.height) {
-      this.strikes.push({ x, y, ignites: this.random.chance(SEASON_IGNITION[season]) });
+      // La terre sèche prend plus facilement : jusqu'à DROUGHT_IGNITION fois plus
+      const ignition = SEASON_IGNITION[season] * (1 + (DROUGHT_IGNITION - 1) * this.dryness);
+      this.strikes.push({ x, y, ignites: this.random.chance(ignition) });
     }
   }
 

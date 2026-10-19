@@ -47,6 +47,8 @@ export interface WorldSummary extends GameDate {
   population: number;
   /** Nombre de villages */
   villages: number;
+  /** Vrai pendant une sécheresse */
+  drought: boolean;
 }
 
 /**
@@ -117,6 +119,7 @@ export class Engine {
       ...dateAt(this.simulation.ticks),
       population: this.simulation.people.count,
       villages: this.simulation.villages.count,
+      drought: this.simulation.weather.drought,
     };
   }
 
@@ -212,8 +215,8 @@ export class Engine {
     for (const cloud of this.simulation.weather.clouds) {
       if (isRaining(cloud)) this.effects.skyRain(cloud.x, cloud.y, rainRadius(cloud), dt);
     }
-    // Les couleurs de la carte suivent les saisons
-    this.mapRenderer.setTime(this.simulation.ticks);
+    // Les couleurs de la carte suivent les saisons et la sécheresse
+    this.mapRenderer.setTime(this.simulation.ticks, this.simulation.weather.dryness);
     // Les flammes scintillent à chaque image, même en pause
     this.fireRenderer.update(this.simulation.fire, (x, y) => this.effects.addSmoke(x, y));
 

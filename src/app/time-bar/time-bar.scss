@@ -50,6 +50,12 @@
   }
 }
 
+// N'apparaît que pendant une sécheresse, en orange brûlé
+.drought {
+  font-weight: 600;
+  color: #e8875a;
+}
+
 button {
   padding: 6px 10px;
   font: inherit;

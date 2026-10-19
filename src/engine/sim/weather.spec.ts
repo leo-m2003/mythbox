@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Season, seasonAt } from './calendar';
-import { TICKS_PER_DAY, TICKS_PER_YEAR } from './sim-clock';
+import { Season, seasonAt, TICKS_PER_SEASON } from './calendar';
+import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 import {
   cloudOpacity,
+  DROUGHT_IGNITION,
+  DROUGHT_TICKS,
+  DRYING_TICKS,
   isRaining,
   MAX_CLOUD_RADIUS,
   MAX_WIND_SPEED,
@@ -139,6 +142,8 @@ describe('Météo', () => {
     const strikes = [0, 0, 0, 0];
     const fires = [0, 0, 0, 0];
     for (let t = 0; t < 20 * TICKS_PER_YEAR; t++) {
+      // Il pleut sur l'île à chaque pas : jamais de sécheresse
+      w.rainFell();
       w.tick(t);
       for (const strike of w.strikes) {
         strikes[seasonAt(t)]++;
@@ -153,6 +158,76 @@ describe('Météo', () => {
     expect(fires[Season.Summer]).toBeGreaterThan(
       fires[Season.Spring] + fires[Season.Autumn] + fires[Season.Winter],
     );
+  });
+
+  it('tourne à la sécheresse après une saison sans pluie sur l’île, mais seulement l’été', () => {
+    const w = weather();
+    // Tout le printemps sans pluie : pas encore de sécheresse, ce n'est pas l'été
+    run(w, TICKS_PER_SEASON);
+    expect(w.dryTicks).toBe(DROUGHT_TICKS);
+    expect(w.drought).toBe(false);
+    // Le premier jour de l'été
+    w.tick(TICKS_PER_SEASON);
+    expect(w.drought).toBe(true);
+  });
+
+  it('ne tourne pas à la sécheresse quand il pleut sur l’île de temps en temps', () => {
+    const w = weather();
+    for (let t = 0; t < 2 * TICKS_PER_YEAR; t++) {
+      w.tick(t);
+      // Une pluie par mois
+      if (t % TICKS_PER_MONTH === 0) w.rainFell();
+    }
+    expect(w.drought).toBe(false);
+    expect(w.dryness).toBe(0);
+  });
+
+  it('dessèche la terre peu à peu, et la pluie brise la sécheresse', () => {
+    const w = weather();
+    // Un printemps sans pluie : la sécheresse commence le premier jour de l'été
+    run(w, TICKS_PER_SEASON + 1);
+    expect(w.drought).toBe(true);
+    // La terre sèche en DRYING_TICKS pas : à moitié au bout de la moitié
+    run(w, DRYING_TICKS / 2 - 1, TICKS_PER_SEASON + 1);
+    expect(w.dryness).toBeCloseTo(0.5);
+    run(w, DRYING_TICKS, TICKS_PER_SEASON + DRYING_TICKS / 2);
+    expect(w.dryness).toBe(1);
+
+    // Il pleut sur l'île : la sécheresse est brisée, et la terre reverdit à la même vitesse
+    w.rainFell();
+    expect(w.drought).toBe(false);
+    const rained = TICKS_PER_SEASON + (3 * DRYING_TICKS) / 2;
+    run(w, DRYING_TICKS / 2, rained);
+    expect(w.dryness).toBeCloseTo(0.5);
+    run(w, DRYING_TICKS, rained + DRYING_TICKS / 2);
+    expect(w.dryness).toBe(0);
+    expect(w.drought).toBe(false);
+  });
+
+  it('allume plus de feux quand la terre est sèche, sans changer la suite du hasard', () => {
+    // La même météo deux fois : sur l'une, il pleut sur l'île à chaque pas, sur l'autre jamais
+    const wet = weather();
+    const dry = weather();
+    let strikes = 0;
+    let wetFires = 0;
+    let dryFires = 0;
+    for (let t = 0; t < 20 * TICKS_PER_YEAR; t++) {
+      wet.rainFell();
+      wet.tick(t);
+      dry.tick(t);
+      // La foudre tombe aux mêmes endroits : seul le feu change
+      expect(dry.strikes.length).toBe(wet.strikes.length);
+      if (seasonAt(t) !== Season.Summer) continue;
+      strikes += dry.strikes.length;
+      wetFires += wet.strikes.filter((strike) => strike.ignites).length;
+      dryFires += dry.strikes.filter((strike) => strike.ignites).length;
+    }
+    // L'été, sur la terre desséchée, environ DROUGHT_IGNITION fois plus de feux
+    const ratio = dryFires / strikes;
+    const expected = SEASON_IGNITION[Season.Summer] * DROUGHT_IGNITION;
+    expect(ratio).toBeGreaterThan(expected - 0.1);
+    expect(ratio).toBeLessThan(expected + 0.1);
+    expect(dryFires).toBeGreaterThan(1.5 * wetFires);
   });
 
   it('retire les nuages qui ont fini leur vie ou quitté la carte', () => {

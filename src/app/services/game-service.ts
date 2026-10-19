@@ -52,6 +52,10 @@ export class GameService {
   /** Nombre de villages */
   readonly villages = this.villagesState.asReadonly();
 
+  private readonly droughtState = signal(false);
+  /** Vrai pendant une sécheresse */
+  readonly drought = this.droughtState.asReadonly();
+
   /** Vitesse à retrouver en sortant de la pause */
   private resumeSpeed: Exclude<SimSpeed, 0> = 1;
 
@@ -122,5 +126,6 @@ export class GameService {
     this.seasonState.set(summary.season);
     this.populationState.set(summary.population);
     this.villagesState.set(summary.villages);
+    this.droughtState.set(summary.drought);
   }
 }

@@ -3,12 +3,13 @@ import { Terrain } from '../world/terrain';
 import { World } from '../world/world';
 import { TICKS_PER_SEASON } from './calendar';
 import { SCORCH_TICKS } from './fire';
-import { TICKS_PER_YEAR } from './sim-clock';
+import { TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 import {
   ADULT_AGE,
   BIRTH_COOLDOWN,
   BIRTH_HUNGER,
   BLESSED_BIRTH_CHANCE,
+  DROUGHT_FOOD_GROWTH,
   FERTILE_UNTIL,
   FERTILITY_RADIUS,
   FIRE_RADIUS,
@@ -98,6 +99,15 @@ function runUntil(sim: Simulation, condition: () => boolean, max = 2000): number
     t++;
   }
   return t;
+}
+
+/**
+ * Un pas de simulation sur une île où il vient de pleuvoir : jamais de sécheresse.
+ * Les petits mondes des tests n'ont pas de nuages : sans pluie, la sécheresse viendrait dès l'été.
+ */
+function wetTick(sim: Simulation): void {
+  sim.weather.rainFell();
+  sim.tick();
 }
 
 /** Vrai si tous les habitants sont sur une tuile praticable */
@@ -245,12 +255,12 @@ describe('Simulation', () => {
 
     // 5 ans tout rond : les saisons rapides et lentes se compensent
     for (let t = 0; t < 1 / FOOD_REGROWTH; t++) {
-      sim.tick();
+      wetTick(sim);
     }
     expect(sim.food[tile]).toBeCloseTo(1, 3);
 
     for (let t = 0; t < 2 / FOOD_REGROWTH; t++) {
-      sim.tick();
+      wetTick(sim);
     }
     expect(sim.food[tile]).toBe(2);
   });
@@ -265,7 +275,7 @@ describe('Simulation', () => {
     const gains: number[] = [];
     for (let season = 0; season < 4; season++) {
       const before = sim.food[tile];
-      for (let t = 0; t < TICKS_PER_SEASON; t++) sim.tick();
+      for (let t = 0; t < TICKS_PER_SEASON; t++) wetTick(sim);
       gains.push(sim.food[tile] - before);
     }
 
@@ -276,6 +286,29 @@ describe('Simulation', () => {
     expect(winter).toBeLessThan(spring / 5);
     // Sur l'année, autant qu'avant les saisons
     expect(spring + summer + autumn + winter).toBeCloseTo(TICKS_PER_YEAR * FOOD_REGROWTH, 5);
+  });
+
+  it('fait repousser la nourriture 4 fois moins quand la sécheresse a desséché la terre', () => {
+    // Le même monde deux fois : sur l'un, il pleut sur l'île à chaque pas, sur l'autre jamais
+    const world = sandWorld(10, 5);
+    const wet = new Simulation(world, 1);
+    const dry = new Simulation(sandWorld(10, 5), 1);
+    const tile = world.index(10, 5);
+    // Le printemps, puis le premier mois de la sécheresse : la terre se dessèche
+    for (let t = 0; t < TICKS_PER_SEASON + TICKS_PER_MONTH; t++) {
+      wetTick(wet);
+      dry.tick();
+    }
+    expect(dry.weather.dryness).toBe(1);
+
+    wet.food[tile] = 0;
+    dry.food[tile] = 0;
+    for (let t = 0; t < TICKS_PER_MONTH; t++) {
+      wetTick(wet);
+      dry.tick();
+    }
+    expect(wet.food[tile]).toBeGreaterThan(0);
+    expect(dry.food[tile]).toBeCloseTo(DROUGHT_FOOD_GROWTH * wet.food[tile], 5);
   });
 
   it('compte les pas depuis le début du monde', () => {
@@ -329,6 +362,34 @@ describe('Simulation', () => {
     expect(sim.fire.burning[world.index(x, y)] > 0).toBe(ignites);
     // Une fois pris, les coups de foudre sont oubliés
     expect(sim.takeStrikes()).toEqual([]);
+  });
+
+  it('tourne à la sécheresse sans pluie sur l’île, et la pluie du dieu sur l’île la brise', () => {
+    const sim = new Simulation(smallIsland(), 1);
+    // Un si petit monde n'a pas ses propres nuages : tout le printemps sans pluie
+    for (let t = 0; t < TICKS_PER_SEASON; t++) sim.tick();
+    expect(sim.weather.drought).toBe(false);
+    // Le premier jour de l'été, c'est la sécheresse
+    sim.tick();
+    expect(sim.weather.drought).toBe(true);
+    // La pluie sur la mer ne la brise pas…
+    sim.rain(0, 0, 0.1);
+    expect(sim.weather.drought).toBe(true);
+    // … la pluie sur l'île, si
+    sim.rain(5, 5, 0.1);
+    expect(sim.weather.drought).toBe(false);
+  });
+
+  it('un nuage de pluie au-dessus de l’île brise la sécheresse, pas au-dessus de la mer', () => {
+    const sim = new Simulation(smallIsland(), 1);
+    for (let t = 0; t <= TICKS_PER_SEASON; t++) sim.tick();
+    expect(sim.weather.drought).toBe(true);
+    sim.weather.clouds.push(formedCloud(0.5, 0.5, true, false));
+    sim.tick();
+    expect(sim.weather.drought).toBe(true);
+    sim.weather.clouds.push(formedCloud(5.5, 5.5, true, false));
+    sim.tick();
+    expect(sim.weather.drought).toBe(false);
   });
 
   it('n’allume pas de feu sous un orage qui pleut', () => {
