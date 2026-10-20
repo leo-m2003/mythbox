@@ -7,7 +7,7 @@ describe('Calendrier', () => {
     expect(dateAt(0)).toEqual({ year: 1, month: 1, day: 1, season: Season.Spring });
   });
 
-  it('change de jour tous les 10 pas, de mois tous les 10 jours, d’année tous les 12 mois', () => {
+  it('change de jour tous les 30 pas, de mois tous les 10 jours, d’année tous les 12 mois', () => {
     expect(dateAt(TICKS_PER_DAY - 1).day).toBe(1);
     expect(dateAt(TICKS_PER_DAY).day).toBe(2);
     expect(dateAt(TICKS_PER_MONTH - 1)).toEqual({

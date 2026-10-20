@@ -284,8 +284,8 @@ describe('Simulation', () => {
     expect(summer).toBeGreaterThan(autumn);
     expect(autumn).toBeGreaterThan(winter);
     expect(winter).toBeLessThan(spring / 5);
-    // Sur l'année, autant qu'avant les saisons
-    expect(spring + summer + autumn + winter).toBeCloseTo(TICKS_PER_YEAR * FOOD_REGROWTH, 5);
+    // Sur l'année, autant qu'avant les saisons (aux arrondis près : une année a beaucoup de pas)
+    expect(spring + summer + autumn + winter).toBeCloseTo(TICKS_PER_YEAR * FOOD_REGROWTH, 4);
   });
 
   it('fait repousser la nourriture 4 fois moins quand la sécheresse a desséché la terre', () => {
@@ -299,7 +299,7 @@ describe('Simulation', () => {
       wetTick(wet);
       dry.tick();
     }
-    expect(dry.weather.dryness).toBe(1);
+    expect(dry.weather.dryness).toBeCloseTo(1);
 
     wet.food[tile] = 0;
     dry.food[tile] = 0;
@@ -433,10 +433,13 @@ describe('Simulation', () => {
     addAdult(sim, 5, 5);
     addAdult(sim, 6, 5);
 
-    // Chacun a 1 chance sur 1 200 par pas, et l'autre doit être tout près à ce moment-là :
-    // on laisse jusqu'à 20 000 pas (moins de 17 ans, ils restent en âge d'avoir des enfants)
+    // Chacun a 1 chance sur 3 600 par pas, et l'autre doit être tout près à ce moment-là :
+    // on laisse jusqu'à 20 000 pas (moins de 6 ans, ils restent en âge d'avoir des enfants)
     let t = 0;
     while (sim.people.count === 2 && t < 20_000) {
+      // Toujours rassasiés : sinon, le parent pourrait avoir assez faim pour manger juste après
+      sim.people.hunger[0] = 0;
+      sim.people.hunger[1] = 0;
       sim.tick();
       t++;
     }

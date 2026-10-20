@@ -36,11 +36,11 @@ describe('SimClock', () => {
     expect(run(x10, 20, 0.05)).toBe(100);
   });
 
-  it('compte 1 s par jour, 10 jours par mois et 12 mois par an', () => {
-    expect(TICKS_PER_YEAR).toBe(1200);
+  it('compte 3 s par jour, 10 jours par mois et 12 mois par an', () => {
+    expect(TICKS_PER_YEAR).toBe(3600);
     const clock = new SimClock();
-    // 2 minutes à x1, en images de 0,05 s
-    expect(run(clock, 2400, 0.05)).toBe(TICKS_PER_YEAR);
+    // 6 minutes à x1, en images de 0,05 s
+    expect(run(clock, 7200, 0.05)).toBe(TICKS_PER_YEAR);
   });
 
   it('garde les fractions de pas pour l’image suivante', () => {
@@ -66,7 +66,7 @@ describe('SimClock', () => {
     expect(clock.advance(0.05)).toBe(2);
   });
 
-    it('oublie la fraction de pas en attente sans changer de vitesse', () => {
+  it('oublie la fraction de pas en attente sans changer de vitesse', () => {
     const clock = new SimClock();
     clock.setSpeed(5);
     // 0,01 s à x5 = un demi-pas, mis en attente

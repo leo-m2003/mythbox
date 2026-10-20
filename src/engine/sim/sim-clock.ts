@@ -1,13 +1,16 @@
 /** Nombre de pas de simulation par seconde, à la vitesse x1 */
 export const TICKS_PER_SECOND = 10;
 
-/** Nombre de pas de simulation dans une journée du jeu (une journée = 1 s à x1) */
-export const TICKS_PER_DAY = 10;
+/**
+ * Nombre de pas de simulation dans une journée du jeu (une journée = 3 s à x1).
+ * C'est elle qui règle la durée de tout le calendrier : les saisons, mais aussi la vie des mortels.
+ */
+export const TICKS_PER_DAY = 30;
 
-/** Nombre de jours dans un mois du jeu (un mois = 10 s à x1) */
+/** Nombre de jours dans un mois du jeu (un mois = 30 s à x1) */
 export const DAYS_PER_MONTH = 10;
 
-/** Nombre de mois dans une année du jeu (une année = 2 minutes à x1) */
+/** Nombre de mois dans une année du jeu (une année = 6 minutes à x1, une saison = 1 min 30) */
 export const MONTHS_PER_YEAR = 12;
 
 /** Nombre de pas de simulation dans un mois */

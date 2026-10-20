@@ -4,12 +4,12 @@ import { World } from '../world/world';
 import { TICKS_PER_MONTH } from './sim-clock';
 
 /**
- * Après un incendie, la terre reste brûlée pendant 6 mois (1 minute à x1) :
+ * Après un incendie, la terre reste brûlée pendant 6 mois (3 minutes à x1) :
  * rien n'y brûle ni n'y repousse, puis la prairie revient.
  */
 export const SCORCH_TICKS = 6 * TICKS_PER_MONTH;
 
-/** Une terre mouillée par la pluie ne peut pas brûler pendant 1 mois (10 secondes à x1) */
+/** Une terre mouillée par la pluie ne peut pas brûler pendant 1 mois (30 secondes à x1) */
 export const WET_TICKS = TICKS_PER_MONTH;
 
 /** Inflammabilité et durée de combustion par terrain, en tableaux typés (lus pour chaque tuile en feu) */
@@ -25,7 +25,7 @@ const BURN_TICKS = Uint8Array.from(Object.values(TERRAIN_INFO).map((info) => inf
 export class Fire {
   readonly burning: Uint8Array;
   readonly scorched: Uint16Array;
-  readonly wet: Uint8Array;
+  readonly wet: Uint16Array;
   /** Nombre de tuiles en feu */
   count = 0;
   /** Nombre de tuiles encore marquées par un incendie */
@@ -39,7 +39,7 @@ export class Fire {
   constructor(private readonly world: World) {
     this.burning = new Uint8Array(world.size);
     this.scorched = new Uint16Array(world.size);
-    this.wet = new Uint8Array(world.size);
+    this.wet = new Uint16Array(world.size);
   }
 
   /** Vrai si la tuile i peut prendre feu maintenant */

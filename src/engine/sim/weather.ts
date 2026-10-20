@@ -17,7 +17,7 @@ export const SEASON_CLOUDS: Record<Season, number> = {
 export const MIN_CLOUD_RADIUS = 4;
 export const MAX_CLOUD_RADIUS = 9;
 
-/** Durée de vie d'un nuage, en pas : de 3 à 8 mois (30 à 80 secondes à x1) */
+/** Durée de vie d'un nuage, en pas : de 3 à 8 mois (de 1 min 30 à 4 minutes à x1) */
 export const MIN_CLOUD_LIFE = 3 * TICKS_PER_MONTH;
 export const MAX_CLOUD_LIFE = 8 * TICKS_PER_MONTH;
 
@@ -27,9 +27,12 @@ const CLOUD_FADE_PART = 0.15;
 /** Chance, à chaque pas, qu'un nuage se forme quand le ciel en manque (en moyenne un tous les 2 jours) */
 const CLOUD_FORM_CHANCE = 1 / (2 * TICKS_PER_DAY);
 
-/** Vitesse du vent, en tuiles par pas (de 0,2 à 0,6 tuile par seconde à x1) */
-export const MIN_WIND_SPEED = 0.02;
-export const MAX_WIND_SPEED = 0.06;
+/**
+ * Vitesse du vent, en tuiles par pas : de 0,2 à 0,6 tuile par jour (0,07 à 0,2 par seconde à x1).
+ * Elle suit le calendrier : un nuage parcourt toujours la même distance pendant sa vie.
+ */
+export const MIN_WIND_SPEED = 0.2 / TICKS_PER_DAY;
+export const MAX_WIND_SPEED = 0.6 / TICKS_PER_DAY;
 
 /** Le vent tourne une fois par jour, d'au plus cet angle (en radians, environ 11°) */
 export const MAX_WIND_TURN = 0.2;
