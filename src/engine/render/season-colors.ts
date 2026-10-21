@@ -28,6 +28,21 @@ const DROUGHT_COLORS: Partial<Record<Terrain, Rgb>> = {
   [Terrain.Hills]: [152, 126, 82],
 };
 
+/** La neige de l'hiver, un peu moins blanche que celle des sommets : on les distingue encore */
+const SNOW: Rgb = [226, 232, 238];
+
+/** Une forêt sous la neige : ses arbres dépassent */
+const SNOWY_FOREST: Rgb = [178, 194, 190];
+
+/**
+ * Couleur de chaque terrain sous la neige de l'hiver, rangée comme l'enum Terrain.
+ * L'eau n'est jamais sous la neige, et les sommets sont déjà enneigés : ils gardent leur couleur.
+ */
+export const SNOW_COLORS: readonly Rgb[] = Object.values(TERRAIN_INFO).map((info, terrain) => {
+  if (terrain <= Terrain.ShallowWater || terrain === Terrain.Snow) return info.color;
+  return terrain === Terrain.Forest ? SNOWY_FOREST : SNOW;
+});
+
 /** Part de la saison pendant laquelle ses couleurs ne bougent pas : ses deux premiers mois */
 const STEADY_PART = 2 / 3;
 

@@ -1,7 +1,7 @@
 import { Terrain } from '../world/terrain';
 import { World } from '../world/world';
 import type { TileRect } from '../world/brushes';
-import { sameColor, seasonColors } from './season-colors';
+import { sameColor, seasonColors, SNOW_COLORS } from './season-colors';
 
 /**
  * Dessine la carte dans un petit canvas caché (1 pixel = 1 tuile),
@@ -13,6 +13,8 @@ export class MapRenderer {
   private readonly image: ImageData;
   /** Couleur de chaque terrain à la saison en cours (même index que l'enum Terrain) */
   private colors = seasonColors(0);
+  /** Altitude à partir de laquelle la neige couvre l'île (Infinity = pas de neige) */
+  private snowElevation = Infinity;
 
   constructor(private readonly world: World) {
     this.buffer = new OffscreenCanvas(world.width, world.height);
@@ -36,15 +38,18 @@ export class MapRenderer {
   }
 
   /**
-   * Suit les saisons et la sécheresse : à appeler à chaque image avec le pas en cours
-   * et la sécheresse de la terre (de 0 à 1).
-   * Toute la carte est redessinée, mais seulement quand une couleur a changé :
-   * pendant le dernier mois de chaque saison, et quand la terre sèche ou reverdit.
+   * Suit les saisons, la sécheresse et la neige : à appeler à chaque image avec le pas en cours,
+   * la sécheresse de la terre (de 0 à 1) et l'altitude à partir de laquelle la neige couvre l'île.
+   * Toute la carte est redessinée, mais seulement quand une couleur ou la neige a changé :
+   * pendant le dernier mois de chaque saison, quand la terre sèche ou reverdit,
+   * et quand la neige tombe ou fond.
    */
-  setTime(tick: number, dryness: number): void {
+  setTime(tick: number, dryness: number, snowElevation: number): void {
     const colors = seasonColors(tick, dryness);
-    if (colors.every((color, terrain) => sameColor(color, this.colors[terrain]))) return;
+    const sameColors = colors.every((color, terrain) => sameColor(color, this.colors[terrain]));
+    if (sameColors && snowElevation === this.snowElevation) return;
     this.colors = colors;
+    this.snowElevation = snowElevation;
     this.redrawAll();
   }
 
@@ -87,7 +92,10 @@ export class MapRenderer {
 
   private writeTile(x: number, y: number): void {
     const i = this.world.index(x, y);
-    const [r, g, b] = this.colors[this.world.terrain[i]];
+    const terrain = this.world.terrain[i];
+    // La neige couvre la terre au-dessus de son altitude (l'eau est toujours plus bas)
+    const snowy = this.world.elevation[i] >= this.snowElevation;
+    const [r, g, b] = snowy ? SNOW_COLORS[terrain] : this.colors[terrain];
     const shade = this.shadeAt(x, y);
 
     // Chaque pixel occupe 4 cases : rouge, vert, bleu, opacité

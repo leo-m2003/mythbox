@@ -1,6 +1,7 @@
 import { Random } from '../core/random';
+import { SNOW_HEIGHT } from '../world/terrain-rules';
 import { Season, seasonAt, TICKS_PER_SEASON } from './calendar';
-import { TICKS_PER_DAY, TICKS_PER_MONTH } from './sim-clock';
+import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 
 /**
  * Nombre de nuages vers lequel tend le ciel, pour 10 000 tuiles, selon la saison :
@@ -83,6 +84,21 @@ export const DRYING_TICKS = 10 * TICKS_PER_DAY;
 /** Quand la terre est desséchée, la foudre allume deux fois plus de feux qu'avec SEASON_IGNITION */
 export const DROUGHT_IGNITION = 2;
 
+/**
+ * L'hiver, la neige descend des sommets jusqu'à cette hauteur au-dessus de la mer :
+ * elle couvre les montagnes, les collines et le haut des prairies (environ un tiers de l'île).
+ */
+export const WINTER_SNOW_LINE = 0.25;
+
+/** Chance qu'un hiver soit rude (un sur cinq) : la neige couvre alors toute l'île */
+export const HARSH_WINTER_CHANCE = 0.2;
+
+/** La neige tombe pendant les 5 premiers jours de l'hiver… */
+export const SNOWFALL_TICKS = 5 * TICKS_PER_DAY;
+
+/** … et fond pendant son dernier mois, quand les couleurs passent à celles du printemps */
+export const THAW_TICKS = TICKS_PER_MONTH;
+
 /** Un nuage. Sa position est celle de son ombre au sol : le nuage lui-même est dessiné plus haut */
 export interface Cloud {
   /** Centre de l'ombre, en tuiles */
@@ -133,7 +149,8 @@ export interface Strike {
 }
 
 /**
- * Le temps qu'il fait : le vent, les nuages qu'il pousse, la foudre des orages et la sécheresse.
+ * Le temps qu'il fait : le vent, les nuages qu'il pousse, la foudre des orages, la sécheresse
+ * et la neige.
  * Pas de DOM ici : la simulation la fait avancer à chaque pas et applique la pluie et la foudre
  * au monde, le rendu la dessine.
  */
@@ -154,6 +171,13 @@ export class Weather {
   drought = false;
   /** La terre, de 0 (normale) à 1 (desséchée) : elle sèche pendant la sécheresse, puis reverdit */
   dryness = 0;
+  /**
+   * Hauteur au-dessus de la mer à partir de laquelle la neige couvre l'île
+   * (0 = le rivage, 1 = le plus haut sommet). Hors de l'hiver, seuls les sommets sont enneigés.
+   */
+  snowLine = SNOW_HEIGHT;
+  /** Vrai pendant un hiver rude : le hasard le décide au premier pas de chaque hiver */
+  harshWinter = false;
   private readonly random: Random;
 
   constructor(
@@ -189,6 +213,7 @@ export class Weather {
       this.turnWind();
     }
     this.dryOut(seasonAt(tick));
+    this.snowFall(tick);
 
     const dx = this.windX;
     const dy = this.windY;
@@ -250,6 +275,28 @@ export class Weather {
     // La terre sèche pendant la sécheresse, et reverdit après, à la même vitesse
     const change = (this.drought ? 1 : -1) / DRYING_TICKS;
     this.dryness = Math.min(1, Math.max(0, this.dryness + change));
+  }
+
+  /**
+   * La neige de l'hiver : à son premier pas, le hasard dit si l'hiver sera rude. La neige descend
+   * des sommets pendant SNOWFALL_TICKS pas, reste, puis remonte en fondant pendant le dernier mois.
+   */
+  private snowFall(tick: number): void {
+    // Pas depuis le début de l'hiver (négatif avant l'hiver)
+    const winterTick = (tick % TICKS_PER_YEAR) - Season.Winter * TICKS_PER_SEASON;
+    if (winterTick < 0) {
+      this.snowLine = SNOW_HEIGHT;
+      this.harshWinter = false;
+      return;
+    }
+    if (winterTick === 0) {
+      this.harshWinter = this.random.chance(HARSH_WINTER_CHANCE);
+    }
+    // La neige de l'hiver, de 0 (les sommets seuls) à 1 (toute la neige) : elle tombe, puis fond
+    const fallen = Math.min(1, winterTick / SNOWFALL_TICKS);
+    const left = Math.min(1, (TICKS_PER_SEASON - winterTick) / THAW_TICKS);
+    const lowest = this.harshWinter ? 0 : WINTER_SNOW_LINE;
+    this.snowLine = lowest + (SNOW_HEIGHT - lowest) * (1 - Math.min(fallen, left));
   }
 
   /**

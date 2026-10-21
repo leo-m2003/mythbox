@@ -1,6 +1,7 @@
 import { Random } from '../core/random';
 import type { TileRect } from '../world/brushes';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
+import { elevationAt } from '../world/terrain-rules';
 import { World } from '../world/world';
 import { Season, seasonAt } from './calendar';
 import { Fire, SCORCH_TICKS } from './fire';
@@ -270,6 +271,11 @@ export class Simulation {
     return added;
   }
 
+  /** Altitude à partir de laquelle la neige couvre l'île : rien n'y repousse ni n'y brûle */
+  get snowElevation(): number {
+    return elevationAt(this.weather.snowLine, this.world.seaLevel);
+  }
+
   /** Vrai si un mortel peut se tenir sur la tuile (x, y) */
   isWalkable(x: number, y: number): boolean {
     return this.world.inBounds(x, y) && TERRAIN_INFO[this.world.getTerrain(x, y)].walkable;
@@ -288,6 +294,8 @@ export class Simulation {
   /** Un pas de simulation */
   tick(): void {
     this.weather.tick(this.elapsed);
+    // Sous la neige, le feu ne prend pas
+    this.fire.snowElevation = this.snowElevation;
     this.applyWeather();
     this.growFood();
     this.fire.tick(this.random, this.burnedOut);
@@ -823,7 +831,7 @@ export class Simulation {
   /**
    * La nourriture repousse doucement, plus ou moins vite selon la saison,
    * sans dépasser ce que le terrain peut porter.
-   * Sur la terre brûlée, rien ne repousse tant qu'elle n'a pas récupéré.
+   * Sur la terre brûlée, rien ne repousse tant qu'elle n'a pas récupéré. Sous la neige non plus.
    */
   private growFood(): void {
     // La sécheresse freine la repousse, d'autant plus que la terre est sèche
@@ -832,8 +840,10 @@ export class Simulation {
     const food = this.food;
     const terrain = this.world.terrain;
     const scorched = this.fire.scorched;
+    const elevation = this.world.elevation;
+    const snow = this.snowElevation;
     for (let i = 0; i < food.length; i++) {
-      if (scorched[i] > 0) continue;
+      if (scorched[i] > 0 || elevation[i] >= snow) continue;
       // Un pinceau a pu réduire la capacité (forêt défrichée, prairie inondée…)
       food[i] = Math.min(FOOD_CAPACITY[terrain[i]], food[i] + regrowth);
     }

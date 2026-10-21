@@ -56,6 +56,10 @@ export class GameService {
   /** Vrai pendant une sécheresse */
   readonly drought = this.droughtState.asReadonly();
 
+  private readonly harshWinterState = signal(false);
+  /** Vrai pendant un hiver rude */
+  readonly harshWinter = this.harshWinterState.asReadonly();
+
   /** Vitesse à retrouver en sortant de la pause */
   private resumeSpeed: Exclude<SimSpeed, 0> = 1;
 
@@ -127,5 +131,6 @@ export class GameService {
     this.populationState.set(summary.population);
     this.villagesState.set(summary.villages);
     this.droughtState.set(summary.drought);
+    this.harshWinterState.set(summary.harshWinter);
   }
 }

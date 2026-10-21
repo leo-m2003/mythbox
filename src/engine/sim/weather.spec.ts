@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { SNOW_HEIGHT } from '../world/terrain-rules';
 import { Season, seasonAt, TICKS_PER_SEASON } from './calendar';
 import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 import {
@@ -13,7 +14,10 @@ import {
   MIN_WIND_SPEED,
   rainRadius,
   SEASON_IGNITION,
+  SNOWFALL_TICKS,
+  THAW_TICKS,
   Weather,
+  WINTER_SNOW_LINE,
   type Cloud,
 } from './weather';
 
@@ -228,6 +232,49 @@ describe('Météo', () => {
     expect(ratio).toBeGreaterThan(expected - 0.1);
     expect(ratio).toBeLessThan(expected + 0.1);
     expect(dryFires).toBeGreaterThan(1.5 * wetFires);
+  });
+
+  it('fait tomber la neige au début de l’hiver, et la fait fondre pendant son dernier mois', () => {
+    const w = weather();
+    const winter = 3 * TICKS_PER_SEASON;
+    // Jusqu'à la fin de l'automne, seuls les sommets sont enneigés
+    run(w, winter);
+    expect(w.snowLine).toBe(SNOW_HEIGHT);
+    // Au premier pas de l'hiver, le hasard dit s'il sera rude : la neige descendra jusqu'au rivage
+    w.tick(winter);
+    const lowest = w.harshWinter ? 0 : WINTER_SNOW_LINE;
+    const middle = (SNOW_HEIGHT + lowest) / 2;
+    // La neige tombe pendant SNOWFALL_TICKS pas : à mi-chemin, puis au plus bas
+    run(w, SNOWFALL_TICKS / 2, winter + 1);
+    expect(w.snowLine).toBeCloseTo(middle);
+    run(w, SNOWFALL_TICKS / 2, winter + 1 + SNOWFALL_TICKS / 2);
+    expect(w.snowLine).toBe(lowest);
+    // Elle reste jusqu'au dernier mois de l'hiver, puis fond
+    const thaw = winter + TICKS_PER_SEASON - THAW_TICKS;
+    run(w, thaw - winter - SNOWFALL_TICKS, winter + SNOWFALL_TICKS + 1);
+    expect(w.snowLine).toBe(lowest);
+    run(w, THAW_TICKS / 2, thaw + 1);
+    expect(w.snowLine).toBeCloseTo(middle);
+    // Au printemps, il ne reste que les sommets
+    run(w, THAW_TICKS / 2, thaw + 1 + THAW_TICKS / 2);
+    expect(w.snowLine).toBe(SNOW_HEIGHT);
+    expect(w.harshWinter).toBe(false);
+  });
+
+  it('rend un hiver sur cinq environ rude : la neige couvre alors toute l’île', () => {
+    const w = weather();
+    let harsh = 0;
+    for (let year = 0; year < 200; year++) {
+      // Le premier pas de l'hiver, puis le moment où toute la neige est tombée
+      const winter = year * TICKS_PER_YEAR + 3 * TICKS_PER_SEASON;
+      w.tick(winter);
+      w.tick(winter + SNOWFALL_TICKS);
+      expect(w.snowLine).toBe(w.harshWinter ? 0 : WINTER_SNOW_LINE);
+      if (w.harshWinter) harsh++;
+    }
+    // En moyenne 40 hivers rudes sur 200
+    expect(harsh).toBeGreaterThan(25);
+    expect(harsh).toBeLessThan(55);
   });
 
   it('retire les nuages qui ont fini leur vie ou quitté la carte', () => {

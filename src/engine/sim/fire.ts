@@ -13,7 +13,9 @@ export const SCORCH_TICKS = 6 * TICKS_PER_MONTH;
 export const WET_TICKS = TICKS_PER_MONTH;
 
 /** Inflammabilité et durée de combustion par terrain, en tableaux typés (lus pour chaque tuile en feu) */
-const FLAMMABILITY = Float32Array.from(Object.values(TERRAIN_INFO).map((info) => info.flammability));
+const FLAMMABILITY = Float32Array.from(
+  Object.values(TERRAIN_INFO).map((info) => info.flammability),
+);
 const BURN_TICKS = Uint8Array.from(Object.values(TERRAIN_INFO).map((info) => info.burnTicks));
 
 /**
@@ -32,6 +34,11 @@ export class Fire {
   scorchedCount = 0;
   /** Nombre de tuiles encore mouillées */
   wetCount = 0;
+  /**
+   * Altitude à partir de laquelle la neige couvre le sol : rien n'y brûle.
+   * La simulation la met à jour à chaque pas (Infinity = pas de neige).
+   */
+  snowElevation = Infinity;
 
   /** Tuiles qui prendront feu à la fin du pas (réutilisé d'un pas à l'autre) */
   private readonly spreading: number[] = [];
@@ -48,6 +55,7 @@ export class Fire {
       this.burning[i] === 0 &&
       this.scorched[i] === 0 &&
       this.wet[i] === 0 &&
+      this.world.elevation[i] < this.snowElevation &&
       FLAMMABILITY[this.world.terrain[i]] > 0
     );
   }
@@ -108,8 +116,8 @@ export class Fire {
       }
       if (burning[i] === 0) continue;
 
-      // Un pinceau a pu noyer la tuile en feu : l'eau éteint le feu
-      if (FLAMMABILITY[world.terrain[i]] === 0) {
+      // Un pinceau a pu noyer la tuile en feu, ou la neige la couvrir : elles éteignent le feu
+      if (FLAMMABILITY[world.terrain[i]] === 0 || world.elevation[i] >= this.snowElevation) {
         this.extinguish(i);
         continue;
       }

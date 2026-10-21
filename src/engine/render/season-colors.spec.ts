@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { TICKS_PER_SEASON } from '../sim/calendar';
 import { TICKS_PER_MONTH, TICKS_PER_YEAR } from '../sim/sim-clock';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
-import { sameColor, seasonColors } from './season-colors';
+import { sameColor, seasonColors, SNOW_COLORS } from './season-colors';
 
 const SUMMER = TICKS_PER_SEASON;
 const AUTUMN = 2 * TICKS_PER_SEASON;
@@ -80,6 +80,23 @@ describe('Couleurs des saisons', () => {
     // Ni l'eau, ni la plage, ni la roche, ni les sommets
     for (const terrain of UNCHANGING) {
       expect(dry[terrain]).toEqual(summer[terrain]);
+    }
+  });
+
+  it('blanchit la terre sous la neige, sauf les arbres des forêts, qui dépassent', () => {
+    const grass = SNOW_COLORS[Terrain.Grass];
+    const forest = SNOW_COLORS[Terrain.Forest];
+    // La prairie enneigée est plus claire que l'herbe de toutes les saisons
+    for (let season = 0; season < 4; season++) {
+      const colors = seasonColors(season * TICKS_PER_SEASON);
+      expect(Math.min(...grass)).toBeGreaterThan(Math.max(...colors[Terrain.Grass]));
+    }
+    // La forêt enneigée est plus sombre que la prairie enneigée, mais plus claire qu'en hiver
+    expect(forest[1]).toBeLessThan(grass[1]);
+    expect(forest[1]).toBeGreaterThan(seasonColors(3 * TICKS_PER_SEASON)[Terrain.Forest][1]);
+    // L'eau et les sommets gardent leur couleur
+    for (const terrain of [Terrain.DeepWater, Terrain.ShallowWater, Terrain.Snow]) {
+      expect(SNOW_COLORS[terrain]).toEqual(TERRAIN_INFO[terrain].color);
     }
   });
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Terrain } from '../world/terrain';
+import { elevationAt } from '../world/terrain-rules';
 import { World } from '../world/world';
 import { TICKS_PER_SEASON } from './calendar';
 import { SCORCH_TICKS } from './fire';
@@ -28,7 +29,7 @@ import {
   STARVATION,
   WANDER_RADIUS,
 } from './simulation';
-import type { Cloud, Strike } from './weather';
+import { SNOWFALL_TICKS, WINTER_SNOW_LINE, type Cloud, type Strike } from './weather';
 
 /** Un petit monde plat de prairie, traversé par une rivière verticale en x = 16 et 17 */
 function grassWorldWithRiver(): World {
@@ -102,12 +103,15 @@ function runUntil(sim: Simulation, condition: () => boolean, max = 2000): number
 }
 
 /**
- * Un pas de simulation sur une île où il vient de pleuvoir : jamais de sécheresse.
+ * Un pas de simulation sur une île où il vient de pleuvoir, et dont l'hiver reste doux :
+ * jamais de sécheresse, et la neige ne descend pas jusqu'à la prairie.
  * Les petits mondes des tests n'ont pas de nuages : sans pluie, la sécheresse viendrait dès l'été.
  */
 function wetTick(sim: Simulation): void {
   sim.weather.rainFell();
   sim.tick();
+  // Un hiver rude se décide à son premier pas, avant que la neige tombe : on l'annule aussitôt
+  sim.weather.harshWinter = false;
 }
 
 /** Vrai si tous les habitants sont sur une tuile praticable */
@@ -309,6 +313,31 @@ describe('Simulation', () => {
     }
     expect(wet.food[tile]).toBeGreaterThan(0);
     expect(dry.food[tile]).toBeCloseTo(DROUGHT_FOOD_GROWTH * wet.food[tile], 5);
+  });
+
+  it('rien ne repousse sous la neige, et le feu n’y prend pas', () => {
+    // Une prairie plate, avec une tuile un peu plus haute : la neige de l'hiver la couvrira
+    const world = grassWorld();
+    const high = world.index(8, 8);
+    world.elevation[high] = elevationAt(WINTER_SNOW_LINE + 0.02, world.seaLevel);
+    world.refreshTerrain(high);
+    expect(world.terrain[high]).toBe(Terrain.Grass);
+    const low = world.index(20, 20);
+    const sim = new Simulation(world, 1);
+
+    // Jusqu'à l'hiver, le temps que la neige tombe (un hiver doux : elle reste sur les hauteurs)
+    for (let t = 0; t <= 3 * TICKS_PER_SEASON + SNOWFALL_TICKS; t++) wetTick(sim);
+    expect(sim.weather.snowLine).toBe(WINTER_SNOW_LINE);
+    sim.food[high] = 0;
+    sim.food[low] = 0;
+    for (let t = 0; t < TICKS_PER_MONTH; t++) wetTick(sim);
+    expect(sim.food[high]).toBe(0);
+    expect(sim.food[low]).toBeGreaterThan(0);
+
+    // Ni la foudre ni le pouvoir Incendie n'y allument de feu : seulement autour, plus bas
+    expect(sim.strikeLightning(8, 8).tilesIgnited).toBe(0);
+    expect(sim.igniteFire(8, 8).tilesIgnited).toBe(4);
+    expect(sim.fire.burning[high]).toBe(0);
   });
 
   it('compte les pas depuis le début du monde', () => {

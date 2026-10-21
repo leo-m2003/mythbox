@@ -12,6 +12,13 @@
       >Sécheresse</span
     >
   }
+  @if (game.harshWinter()) {
+    <span
+      class="stat harsh-winter"
+      title="La neige couvre toute l'île : rien n'y repousse, et le feu n'y prend pas"
+      >Hiver rude</span
+    >
+  }
   <span class="stat"
     >Mois <span class="value short">{{ game.month() }}</span></span
   >

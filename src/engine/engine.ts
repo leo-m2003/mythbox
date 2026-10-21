@@ -49,6 +49,8 @@ export interface WorldSummary extends GameDate {
   villages: number;
   /** Vrai pendant une sécheresse */
   drought: boolean;
+  /** Vrai pendant un hiver rude */
+  harshWinter: boolean;
 }
 
 /**
@@ -120,6 +122,7 @@ export class Engine {
       population: this.simulation.people.count,
       villages: this.simulation.villages.count,
       drought: this.simulation.weather.drought,
+      harshWinter: this.simulation.weather.harshWinter,
     };
   }
 
@@ -215,8 +218,12 @@ export class Engine {
     for (const cloud of this.simulation.weather.clouds) {
       if (isRaining(cloud)) this.effects.skyRain(cloud.x, cloud.y, rainRadius(cloud), dt);
     }
-    // Les couleurs de la carte suivent les saisons et la sécheresse
-    this.mapRenderer.setTime(this.simulation.ticks, this.simulation.weather.dryness);
+    // Les couleurs de la carte suivent les saisons, la sécheresse et la neige
+    this.mapRenderer.setTime(
+      this.simulation.ticks,
+      this.simulation.weather.dryness,
+      this.simulation.snowElevation,
+    );
     // Les flammes scintillent à chaque image, même en pause
     this.fireRenderer.update(this.simulation.fire, (x, y) => this.effects.addSmoke(x, y));
 

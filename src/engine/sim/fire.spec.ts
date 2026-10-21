@@ -97,7 +97,9 @@ describe('Fire', () => {
 
     // Toute la bande a brûlé, et rien d'autre
     expect(burnedOut.length).toBe(10);
-    expect(new Set(burnedOut)).toEqual(new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((x) => world.index(x, 5))));
+    expect(new Set(burnedOut)).toEqual(
+      new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((x) => world.index(x, 5))),
+    );
     expect(fire.count).toBe(0);
   });
 
@@ -151,6 +153,26 @@ describe('Fire', () => {
     fire.regrow(tile, SCORCH_TICKS);
     expect(fire.scorched[tile]).toBe(0);
     expect(fire.scorchedCount).toBe(0);
+  });
+
+  it('ne brûle pas sous la neige, et la neige éteint le feu sans laisser de terre brûlée', () => {
+    const world = sandWorldWithForest(3);
+    const fire = new Fire(world);
+    const [a, b, c] = [world.index(2, 5), world.index(3, 5), world.index(4, 5)];
+    fire.ignite(a);
+
+    // La neige tombe sur la forêt, toute à l'altitude 0,5
+    fire.snowElevation = 0.5;
+    expect(fire.canBurn(b)).toBe(false);
+    expect(fire.ignite(c)).toBe(false);
+    run(world, fire, new Random(1), 1);
+    expect(fire.burning[a]).toBe(0);
+    expect(fire.count).toBe(0);
+    expect(fire.scorched[a]).toBe(0);
+
+    // Une fois la neige fondue, la forêt peut de nouveau brûler
+    fire.snowElevation = Infinity;
+    expect(fire.ignite(b)).toBe(true);
   });
 
   it('ne brûle pas une terre mouillée, jusqu’à ce qu’elle sèche', () => {
