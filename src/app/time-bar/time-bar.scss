@@ -7,7 +7,7 @@
 }
 
 // Pas la place pour les deux barres côte à côte : celle du temps passe sous celle du monde
-@media (max-width: 1560px) {
+@media (max-width: 1640px) {
   :host {
     top: 76px;
   }
@@ -43,6 +43,23 @@
   &.short {
     min-width: 2ch;
   }
+
+  // La place de « Printemps », le plus long : la barre ne bouge pas quand la saison change
+  &.season {
+    min-width: 6.6em;
+  }
+}
+
+// N'apparaît que pendant une sécheresse, en orange brûlé
+.drought {
+  font-weight: 600;
+  color: #e8875a;
+}
+
+// N'apparaît que pendant un hiver rude, en bleu glacier
+.harsh-winter {
+  font-weight: 600;
+  color: #a8d4f0;
 }
 
 button {

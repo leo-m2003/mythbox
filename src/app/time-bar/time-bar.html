@@ -1,9 +1,36 @@
 <div class="panel" role="group" aria-label="Écoulement du temps">
-  <span class="stat">An <span class="value">{{ game.year() }}</span></span>
-  <span class="stat">Mois <span class="value short">{{ game.month() }}</span></span>
-  <span class="stat">Jour <span class="value short">{{ game.day() }}</span></span>
-  <span class="stat">Habitants <span class="value">{{ game.population() }}</span></span>
-  <span class="stat">Villages <span class="value">{{ game.villages() }}</span></span>
+  <span class="stat"
+    >An <span class="value">{{ game.year() }}</span></span
+  >
+  <span class="stat"
+    ><span class="value season">{{ seasonNames[game.season()] }}</span></span
+  >
+  @if (game.drought()) {
+    <span
+      class="stat drought"
+      title="Pas de pluie sur l'île depuis une saison : la nourriture repousse moins, et le feu prend plus facilement"
+      >Sécheresse</span
+    >
+  }
+  @if (game.harshWinter()) {
+    <span
+      class="stat harsh-winter"
+      title="La neige couvre toute l'île : rien n'y repousse, et le feu n'y prend pas"
+      >Hiver rude</span
+    >
+  }
+  <span class="stat"
+    >Mois <span class="value short">{{ game.month() }}</span></span
+  >
+  <span class="stat"
+    >Jour <span class="value short">{{ game.day() }}</span></span
+  >
+  <span class="stat"
+    >Habitants <span class="value">{{ game.population() }}</span></span
+  >
+  <span class="stat"
+    >Villages <span class="value">{{ game.villages() }}</span></span
+  >
 
   <button
     type="button"

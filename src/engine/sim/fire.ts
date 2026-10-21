@@ -4,16 +4,18 @@ import { World } from '../world/world';
 import { TICKS_PER_MONTH } from './sim-clock';
 
 /**
- * Après un incendie, la terre reste brûlée pendant 6 mois (1 minute à x1) :
+ * Après un incendie, la terre reste brûlée pendant 6 mois (3 minutes à x1) :
  * rien n'y brûle ni n'y repousse, puis la prairie revient.
  */
 export const SCORCH_TICKS = 6 * TICKS_PER_MONTH;
 
-/** Une terre mouillée par la pluie ne peut pas brûler pendant 1 mois (10 secondes à x1) */
+/** Une terre mouillée par la pluie ne peut pas brûler pendant 1 mois (30 secondes à x1) */
 export const WET_TICKS = TICKS_PER_MONTH;
 
 /** Inflammabilité et durée de combustion par terrain, en tableaux typés (lus pour chaque tuile en feu) */
-const FLAMMABILITY = Float32Array.from(Object.values(TERRAIN_INFO).map((info) => info.flammability));
+const FLAMMABILITY = Float32Array.from(
+  Object.values(TERRAIN_INFO).map((info) => info.flammability),
+);
 const BURN_TICKS = Uint8Array.from(Object.values(TERRAIN_INFO).map((info) => info.burnTicks));
 
 /**
@@ -25,13 +27,18 @@ const BURN_TICKS = Uint8Array.from(Object.values(TERRAIN_INFO).map((info) => inf
 export class Fire {
   readonly burning: Uint8Array;
   readonly scorched: Uint16Array;
-  readonly wet: Uint8Array;
+  readonly wet: Uint16Array;
   /** Nombre de tuiles en feu */
   count = 0;
   /** Nombre de tuiles encore marquées par un incendie */
   scorchedCount = 0;
   /** Nombre de tuiles encore mouillées */
   wetCount = 0;
+  /**
+   * Altitude à partir de laquelle la neige couvre le sol : rien n'y brûle.
+   * La simulation la met à jour à chaque pas (Infinity = pas de neige).
+   */
+  snowElevation = Infinity;
 
   /** Tuiles qui prendront feu à la fin du pas (réutilisé d'un pas à l'autre) */
   private readonly spreading: number[] = [];
@@ -39,7 +46,7 @@ export class Fire {
   constructor(private readonly world: World) {
     this.burning = new Uint8Array(world.size);
     this.scorched = new Uint16Array(world.size);
-    this.wet = new Uint8Array(world.size);
+    this.wet = new Uint16Array(world.size);
   }
 
   /** Vrai si la tuile i peut prendre feu maintenant */
@@ -48,6 +55,7 @@ export class Fire {
       this.burning[i] === 0 &&
       this.scorched[i] === 0 &&
       this.wet[i] === 0 &&
+      this.world.elevation[i] < this.snowElevation &&
       FLAMMABILITY[this.world.terrain[i]] > 0
     );
   }
@@ -108,8 +116,8 @@ export class Fire {
       }
       if (burning[i] === 0) continue;
 
-      // Un pinceau a pu noyer la tuile en feu : l'eau éteint le feu
-      if (FLAMMABILITY[world.terrain[i]] === 0) {
+      // Un pinceau a pu noyer la tuile en feu, ou la neige la couvrir : elles éteignent le feu
+      if (FLAMMABILITY[world.terrain[i]] === 0 || world.elevation[i] >= this.snowElevation) {
         this.extinguish(i);
         continue;
       }

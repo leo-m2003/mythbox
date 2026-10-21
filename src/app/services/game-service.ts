@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { Engine, MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS, type WorldSummary } from '@engine/engine';
+import { Season } from '@engine/sim/calendar';
 import type { SimSpeed } from '@engine/sim/sim-clock';
 import { HAND, type Tool } from '@engine/tool';
 
@@ -39,6 +40,10 @@ export class GameService {
   /** Jour dans le mois en cours */
   readonly day = this.dayState.asReadonly();
 
+  private readonly seasonState = signal(Season.Spring);
+  /** Saison en cours */
+  readonly season = this.seasonState.asReadonly();
+
   private readonly populationState = signal(0);
   /** Nombre d'habitants vivants */
   readonly population = this.populationState.asReadonly();
@@ -46,6 +51,14 @@ export class GameService {
   private readonly villagesState = signal(0);
   /** Nombre de villages */
   readonly villages = this.villagesState.asReadonly();
+
+  private readonly droughtState = signal(false);
+  /** Vrai pendant une sécheresse */
+  readonly drought = this.droughtState.asReadonly();
+
+  private readonly harshWinterState = signal(false);
+  /** Vrai pendant un hiver rude */
+  readonly harshWinter = this.harshWinterState.asReadonly();
 
   /** Vitesse à retrouver en sortant de la pause */
   private resumeSpeed: Exclude<SimSpeed, 0> = 1;
@@ -114,7 +127,10 @@ export class GameService {
     this.yearState.set(summary.year);
     this.monthState.set(summary.month);
     this.dayState.set(summary.day);
+    this.seasonState.set(summary.season);
     this.populationState.set(summary.population);
     this.villagesState.set(summary.villages);
+    this.droughtState.set(summary.drought);
+    this.harshWinterState.set(summary.harshWinter);
   }
 }

@@ -1,4 +1,5 @@
 import { Random } from '../core/random';
+import { CLOUD_HEIGHT, drawCloud, RAIN_CLOUD } from './cloud-renderer';
 
 /** Durée d'un éclair à l'écran, en secondes */
 const LIGHTNING_DURATION = 0.4;
@@ -16,9 +17,11 @@ const SMOKE_DURATION = 2.5;
 const SMOKE_RISE = 1.2;
 
 /** Nombre maximal de gouttes de pluie à l'écran */
-const MAX_DROPS = 800;
+const MAX_DROPS = 1500;
 /** Gouttes qui tombent chaque seconde, par tuile de la zone de pluie */
 const DROPS_PER_TILE = 6;
+/** La pluie du ciel est plus fine que celle du dieu */
+const SKY_DROPS_PER_TILE = 3;
 /** Hauteur d'où tombe une goutte, en tuiles au-dessus de son point de chute */
 const DROP_HEIGHT = 4;
 /** Vitesse de chute, en tuiles par seconde */
@@ -29,20 +32,6 @@ const DROP_LENGTH = 0.7;
 const SPLASH_DURATION = 0.25;
 /** Vitesse à laquelle le nuage et son ombre apparaissent et disparaissent (1 = en une seconde) */
 const CLOUD_FADE = 3;
-
-/**
- * Forme du nuage : des disques qui se chevauchent, en x, y et rayon,
- * exprimés en fraction du rayon de la pluie (le nuage grandit avec elle).
- */
-const CLOUD_PUFFS = [
-  [-0.55, 0.1, 0.35],
-  [-0.25, -0.12, 0.45],
-  [0.15, -0.2, 0.5],
-  [0.5, -0.02, 0.38],
-  [0.75, 0.15, 0.25],
-  [0, 0.15, 0.4],
-  [-0.8, 0.2, 0.22],
-] as const;
 
 /** Durée de la secousse de l'écran, en secondes */
 const SHAKE_DURATION = 0.7;
@@ -68,6 +57,8 @@ interface Bolt {
   readonly points: Float32Array;
   readonly impactX: number;
   readonly impactY: number;
+  /** Flash blanc sur tout l'écran : seulement pour la foudre du dieu */
+  readonly flash: boolean;
   /** Temps écoulé depuis la frappe, en secondes */
   age: number;
 }
@@ -118,17 +109,21 @@ export class Effects {
   // Le hasard des effets n'a pas besoin d'être reproductible : graine quelconque
   private readonly random = new Random(Random.newSeed());
 
-  /** Un éclair qui tombe du ciel sur le point (x, y), en tuiles */
-  addLightning(x: number, y: number): void {
+  /**
+   * Un éclair qui tombe du ciel sur le point (x, y), en tuiles.
+   * Celui d'un orage (`fromCloud`) part du nuage, et sans flash : il y en a souvent, surtout à x10.
+   */
+  addLightning(x: number, y: number, fromCloud = false): void {
+    const height = fromCloud ? CLOUD_HEIGHT : BOLT_HEIGHT;
     const points = new Float32Array((BOLT_SEGMENTS + 1) * 2);
     for (let s = 0; s <= BOLT_SEGMENTS; s++) {
       const t = s / BOLT_SEGMENTS;
       // Zigzag de plus en plus serré à l'approche du sol, qui finit pile sur l'impact
       const jitter = s === BOLT_SEGMENTS ? 0 : this.random.range(-1.5, 1.5) * (1 - t * 0.6);
       points[s * 2] = x + jitter;
-      points[s * 2 + 1] = y - BOLT_HEIGHT * (1 - t);
+      points[s * 2 + 1] = y - height * (1 - t);
     }
-    this.bolts.push({ points, impactX: x, impactY: y, age: 0 });
+    this.bolts.push({ points, impactX: x, impactY: y, flash: !fromCloud, age: 0 });
   }
 
   /** Une volute de fumée qui monte depuis le point (x, y), en tuiles */
@@ -158,7 +153,7 @@ export class Effects {
       const k = this.smokeCount++;
       this.smokeX[k] = x + Math.cos(angle) * distance;
       this.smokeY[k] = y + Math.sin(angle) * distance;
-      // La poussière part dans tous les sens, et certaines volutes naissent un peu plus tard
+      // La poussière part dans tous les sens, et certaines volutes s'effacent plus tôt que d'autres
       this.smokeDrift[k] = this.random.range(-0.6, 0.6);
       this.smokeAge[k] = this.random.range(0, 0.6);
       this.smokeKind[k] = DUST;
@@ -204,8 +199,20 @@ export class Effects {
     this.cloudX = x;
     this.cloudY = y;
     this.cloudRadius = radius;
+    this.addDrops(x, y, radius, DROPS_PER_TILE * dt, DROP_HEIGHT);
+  }
 
-    this.pendingDrops += Math.PI * radius * radius * DROPS_PER_TILE * dt;
+  /**
+   * Il pleut du ciel pendant `dt` secondes sur le disque de centre (x, y) et de rayon `radius`, en tuiles :
+   * des gouttes plus fines, qui tombent du nuage de la météo. À appeler à chaque image tant qu'il pleut.
+   */
+  skyRain(x: number, y: number, radius: number, dt: number): void {
+    this.addDrops(x, y, radius, SKY_DROPS_PER_TILE * dt, CLOUD_HEIGHT);
+  }
+
+  /** Ajoute `perTile` gouttes par tuile du disque (x, y, radius), qui tombent d'au plus `height` tuiles */
+  private addDrops(x: number, y: number, radius: number, perTile: number, height: number): void {
+    this.pendingDrops += Math.PI * radius * radius * perTile;
     while (this.pendingDrops >= 1 && this.dropCount < MAX_DROPS) {
       this.pendingDrops--;
       // Un point au hasard dans le disque (la racine carrée répartit les gouttes uniformément)
@@ -214,7 +221,7 @@ export class Effects {
       const k = this.dropCount++;
       this.dropX[k] = x + Math.cos(angle) * distance;
       this.dropY[k] = y + Math.sin(angle) * distance;
-      this.dropHeight[k] = this.random.range(0.5, 1) * DROP_HEIGHT;
+      this.dropHeight[k] = this.random.range(0.5, 1) * height;
       this.dropSplash[k] = 0;
     }
     // Trop de gouttes à l'écran : on oublie celles qui ne trouvent pas de place
@@ -285,14 +292,14 @@ export class Effects {
     this.drawWaves(ctx, originX, originY, zoom);
     this.drawSmoke(ctx, originX, originY, zoom);
     this.drawRain(ctx, originX, originY, zoom);
-    this.drawCloud(ctx, originX, originY, zoom);
+    this.drawRainCloud(ctx, originX, originY, zoom);
 
     for (const bolt of this.bolts) {
       // 1 au moment de la frappe, puis s'efface jusqu'à 0
       const alpha = 1 - bolt.age / LIGHTNING_DURATION;
 
       // Le flash de tout l'écran, très bref
-      if (bolt.age < FLASH_DURATION) {
+      if (bolt.flash && bolt.age < FLASH_DURATION) {
         ctx.fillStyle = `rgba(255, 255, 255, ${0.3 * (1 - bolt.age / FLASH_DURATION)})`;
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
       }
@@ -466,33 +473,21 @@ export class Effects {
    * Les gouttes partent jusqu'à DROP_HEIGHT tuiles plus haut et un peu à gauche (le vent) :
    * le nuage est placé là.
    */
-  private drawCloud(
+  private drawRainCloud(
     ctx: CanvasRenderingContext2D,
     originX: number,
     originY: number,
     zoom: number,
   ): void {
     if (this.cloud === 0) return;
-    const size = this.cloudRadius * zoom;
-    const cx = originX + (this.cloudX - DROP_HEIGHT * 0.2) * zoom;
-    const cy = originY + (this.cloudY - DROP_HEIGHT - 0.5) * zoom;
-
-    // Deux passes : le dessous gris, un peu décalé vers le bas, puis le dessus clair
-    for (const [shift, color] of [
-      [0.12, `rgba(120, 130, 150, ${0.9 * this.cloud})`],
-      [0, `rgba(235, 240, 248, ${0.95 * this.cloud})`],
-    ] as const) {
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      for (const [px, py, pr] of CLOUD_PUFFS) {
-        const x = cx + px * size;
-        const y = cy + (py + shift) * size;
-        // moveTo évite un trait entre deux disques du même tracé
-        ctx.moveTo(x + pr * size, y);
-        ctx.arc(x, y, pr * size, 0, Math.PI * 2);
-      }
-      ctx.fill();
-    }
+    const shape = {
+      x: originX + (this.cloudX - DROP_HEIGHT * 0.2) * zoom,
+      y: originY + (this.cloudY - DROP_HEIGHT - 0.5) * zoom,
+      size: this.cloudRadius * zoom,
+      stretch: 1,
+      mirrored: false,
+    };
+    drawCloud(ctx, shape, this.cloud, RAIN_CLOUD);
   }
 
   private traceBolt(
