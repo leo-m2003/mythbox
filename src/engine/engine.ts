@@ -1,18 +1,14 @@
 import { Random } from './core/random';
 import { PointerInput } from './input/pointer-input';
 import { Camera, type Point } from './render/camera';
+import { drawCloudShadows, drawWeatherClouds } from './render/cloud-renderer';
 import { MapRenderer } from './render/map-renderer';
 import { drawPeople } from './render/people-renderer';
 import { drawVillages } from './render/village-renderer';
 import { Effects } from './render/effects';
 import { FireRenderer } from './render/fire-renderer';
-import {
-  SimClock,
-  TICKS_PER_DAY,
-  TICKS_PER_MONTH,
-  TICKS_PER_YEAR,
-  type SimSpeed,
-} from './sim/sim-clock';
+import { dateAt, type GameDate } from './sim/calendar';
+import { SimClock, type SimSpeed } from './sim/sim-clock';
 import {
   FERTILITY_RADIUS,
   FIRE_RADIUS,
@@ -21,6 +17,7 @@ import {
   RAIN_RADIUS,
   Simulation,
 } from './sim/simulation';
+import { isRaining, rainRadius } from './sim/weather';
 import { HAND, PowerKind, type Tool } from './tool';
 import { applyBrush } from './world/brushes';
 import { generateWorld } from './world/generator';
@@ -44,18 +41,16 @@ const MAX_FRAME_TIME = 0.05;
 /** Intervalle entre deux résumés envoyés à l'interface, en secondes */
 const SUMMARY_INTERVAL = 0.25;
 
-/** Petit résumé du monde, envoyé à l'interface quelques fois par seconde */
-export interface WorldSummary {
-  /** Année en cours, à partir de 1 */
-  year: number;
-  /** Mois dans l'année, de 1 à 12 */
-  month: number;
-  /** Jour dans le mois, de 1 à 10 */
-  day: number;
+/** Petit résumé du monde, envoyé à l'interface quelques fois par seconde : la date, et… */
+export interface WorldSummary extends GameDate {
   /** Nombre d'habitants vivants */
   population: number;
   /** Nombre de villages */
   villages: number;
+  /** Vrai pendant une sécheresse */
+  drought: boolean;
+  /** Vrai pendant un hiver rude */
+  harshWinter: boolean;
 }
 
 /**
@@ -121,13 +116,13 @@ export class Engine {
 
   /** Résumé du monde à l'instant présent */
   summary(): WorldSummary {
-    const tick = this.clock.tick;
     return {
-      year: Math.floor(tick / TICKS_PER_YEAR) + 1,
-      month: Math.floor((tick % TICKS_PER_YEAR) / TICKS_PER_MONTH) + 1,
-      day: Math.floor((tick % TICKS_PER_MONTH) / TICKS_PER_DAY) + 1,
+      // La date vient de la simulation : c'est elle qui compte les pas
+      ...dateAt(this.simulation.ticks),
       population: this.simulation.people.count,
       villages: this.simulation.villages.count,
+      drought: this.simulation.weather.drought,
+      harshWinter: this.simulation.weather.harshWinter,
     };
   }
 
@@ -215,6 +210,20 @@ export class Engine {
     if (changed) {
       this.mapRenderer.redrawRect(changed);
     }
+    // Les éclairs des orages tombés pendant ces pas
+    for (const strike of this.simulation.takeStrikes()) {
+      this.effects.addLightning(strike.x + 0.5, strike.y + 0.5, true);
+    }
+    // La pluie tombe sous les nuages de pluie, même en pause (comme les flammes scintillent)
+    for (const cloud of this.simulation.weather.clouds) {
+      if (isRaining(cloud)) this.effects.skyRain(cloud.x, cloud.y, rainRadius(cloud), dt);
+    }
+    // Les couleurs de la carte suivent les saisons, la sécheresse et la neige
+    this.mapRenderer.setTime(
+      this.simulation.ticks,
+      this.simulation.weather.dryness,
+      this.simulation.snowElevation,
+    );
     // Les flammes scintillent à chaque image, même en pause
     this.fireRenderer.update(this.simulation.fire, (x, y) => this.effects.addSmoke(x, y));
 
@@ -307,8 +316,11 @@ export class Engine {
     const oy = Math.round(origin.y) + shake.y;
     this.mapRenderer.draw(ctx, ox, oy, camera.zoom);
     this.fireRenderer.draw(ctx, ox, oy, camera.zoom);
+    // Les ombres des nuages sur le sol, puis les nuages dans le ciel, au-dessus des mortels
+    drawCloudShadows(ctx, this.simulation.weather, ox, oy, camera.zoom);
     drawVillages(ctx, this.simulation.villages, ox, oy, camera.zoom);
     drawPeople(ctx, this.simulation.people, ox, oy, camera.zoom);
+    drawWeatherClouds(ctx, this.simulation.weather, ox, oy, camera.zoom);
     this.effects.draw(ctx, ox, oy, camera.zoom);
 
     this.drawToolPreview();

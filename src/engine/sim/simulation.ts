@@ -1,11 +1,14 @@
 import { Random } from '../core/random';
 import type { TileRect } from '../world/brushes';
 import { Terrain, TERRAIN_INFO } from '../world/terrain';
+import { elevationAt } from '../world/terrain-rules';
 import { World } from '../world/world';
+import { Season, seasonAt } from './calendar';
 import { Fire, SCORCH_TICKS } from './fire';
 import { People } from './people';
 import { TICKS_PER_DAY, TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 import { Villages } from './villages';
+import { isRaining, rainRadius, Weather, type Strike } from './weather';
 
 /** Nombre d'habitants au début d'un monde */
 export const INITIAL_PEOPLE = 20;
@@ -20,16 +23,16 @@ export const WALK_SPEED = 0.15;
 const MAX_WAIT = 30;
 
 /**
- * Faim à partir de laquelle un habitant cherche à manger (2 mois).
- * Une « portion » est donc une grosse réserve : la récolte d'une saison, pas un repas.
+ * Faim à partir de laquelle un habitant cherche à manger (6 mois).
+ * Une « portion » est donc une grosse réserve, de quoi tenir une demi-année, pas un repas.
  */
-export const HUNGRY_AT = 2 * TICKS_PER_MONTH;
+export const HUNGRY_AT = 6 * TICKS_PER_MONTH;
 
-/** Faim à laquelle un habitant meurt (4 mois sans manger) */
-export const STARVATION = 4 * TICKS_PER_MONTH;
+/** Faim à laquelle un habitant meurt (un an sans manger) */
+export const STARVATION = 12 * TICKS_PER_MONTH;
 
-/** Faim effacée par une portion de nourriture */
-export const PORTION_VALUE = 2 * TICKS_PER_MONTH;
+/** Faim effacée par une portion de nourriture (6 mois) */
+export const PORTION_VALUE = 6 * TICKS_PER_MONTH;
 
 /** Âge adulte : à partir de 16 ans, on peut avoir des enfants */
 export const ADULT_AGE = 16 * TICKS_PER_YEAR;
@@ -47,8 +50,8 @@ const BIRTH_CHANCE = 1 / TICKS_PER_YEAR;
 /** Délai minimal entre deux enfants d'un même parent : 2 ans */
 export const BIRTH_COOLDOWN = 2 * TICKS_PER_YEAR;
 
-/** Un enfant fatigue : la faim du parent augmente d'autant */
-export const BIRTH_HUNGER = TICKS_PER_MONTH;
+/** Un enfant fatigue : la faim du parent augmente d'autant (3 mois) */
+export const BIRTH_HUNGER = 3 * TICKS_PER_MONTH;
 
 /** Distance maximale entre les deux adultes, en tuiles */
 const PARTNER_DISTANCE = 2;
@@ -159,10 +162,33 @@ export const MAX_VILLAGE_SIZE = 40;
 const LEAVE_CHANCE = 1 / TICKS_PER_YEAR;
 
 /**
- * Repousse de la nourriture, en portions par pas : une portion tous les 5 ans.
+ * Repousse de la nourriture, en portions par pas, en moyenne sur l'année : une portion tous les 5 ans.
  * C'est elle qui fixe combien d'habitants l'île peut nourrir (voir le guide de l'étape 4).
  */
 export const FOOD_REGROWTH = 1 / (5 * TICKS_PER_YEAR);
+
+/**
+ * La repousse selon la saison, en multiple de FOOD_REGROWTH : rapide au printemps, presque nulle l'hiver.
+ * La moyenne vaut 1 : sur une année entière, la nourriture repousse autant qu'avant les saisons.
+ */
+export const SEASON_FOOD_GROWTH: Record<Season, number> = {
+  [Season.Spring]: 1.7,
+  [Season.Summer]: 1.3,
+  [Season.Autumn]: 0.8,
+  [Season.Winter]: 0.2,
+};
+
+/** Quand la terre est desséchée par la sécheresse, la nourriture repousse 4 fois moins */
+export const DROUGHT_FOOD_GROWTH = 0.25;
+
+/**
+ * La pluie du ciel est plus douce que celle du dieu : nourriture apportée à chaque pas, par tuile arrosée.
+ * Un nuage de pluie qui passe nourrit la terre comme plusieurs mois de repousse.
+ */
+export const SKY_RAIN_FOOD = 25 * FOOD_REGROWTH;
+
+/** Sous la pluie du ciel, la terre brûlée s'efface 3 fois plus vite : 2 pas de plus à chaque pas */
+export const SKY_RAIN_REGROWTH = 2;
 
 /**
  * Nourriture maximale par type de terrain, rangée dans un petit tableau typé.
@@ -185,7 +211,13 @@ export class Simulation {
   /** Nourriture disponible sur chaque tuile, en portions (même index que la grille du monde) */
   readonly food: Float32Array;
   readonly fire: Fire;
+  /** Le vent et les nuages */
+  readonly weather: Weather;
+  /** Coups de foudre des orages pas encore dessinés : le moteur les prend avec takeStrikes() */
+  private strikes: Strike[] = [];
   private readonly random: Random;
+  /** Nombre de pas joués depuis le début du monde : c'est lui qui donne la date et la saison */
+  private elapsed = 0;
 
   /** Zone de la carte dont le terrain a changé depuis le dernier dessin (forêts brûlées, séismes), ou null */
   private dirty: TileRect | null = null;
@@ -205,6 +237,13 @@ export class Simulation {
       this.food[i] = this.foodCapacity(i);
     }
     this.fire = new Fire(world);
+    // La météo a son propre hasard, lui aussi tiré de la graine du monde
+    this.weather = new Weather(world.width, world.height, seed ^ 0xc10d);
+  }
+
+  /** Nombre de pas joués depuis le début du monde */
+  get ticks(): number {
+    return this.elapsed;
   }
 
   /**
@@ -232,6 +271,11 @@ export class Simulation {
     return added;
   }
 
+  /** Altitude à partir de laquelle la neige couvre l'île : rien n'y repousse ni n'y brûle */
+  get snowElevation(): number {
+    return elevationAt(this.weather.snowLine, this.world.seaLevel);
+  }
+
   /** Vrai si un mortel peut se tenir sur la tuile (x, y) */
   isWalkable(x: number, y: number): boolean {
     return this.world.inBounds(x, y) && TERRAIN_INFO[this.world.getTerrain(x, y)].walkable;
@@ -249,6 +293,10 @@ export class Simulation {
 
   /** Un pas de simulation */
   tick(): void {
+    this.weather.tick(this.elapsed);
+    // Sous la neige, le feu ne prend pas
+    this.fire.snowElevation = this.snowElevation;
+    this.applyWeather();
     this.growFood();
     this.fire.tick(this.random, this.burnedOut);
 
@@ -298,13 +346,15 @@ export class Simulation {
 
       this.move(i);
     }
+    this.elapsed++;
   }
 
   /**
    * La foudre de Zeus frappe la tuile (x, y) : les mortels à LIGHTNING_RADIUS tuiles au plus
    * meurent, la nourriture des tuiles touchées brûle, et la tuile frappée prend feu si elle le peut.
+   * La foudre des orages n'allume pas toujours de feu : `ignites` le dit.
    */
-  strikeLightning(x: number, y: number): PowerResult {
+  strikeLightning(x: number, y: number, ignites = true): PowerResult {
     const result = noEffect();
     // Personne n'échappe à la foudre
     const struck = this.peopleAround(x, y, LIGHTNING_RADIUS, () => 1);
@@ -314,7 +364,7 @@ export class Simulation {
     this.forEachTileAround(x, y, LIGHTNING_RADIUS, (i) => {
       this.food[i] = 0;
     });
-    if (this.fire.ignite(this.world.index(x, y))) {
+    if (ignites && this.fire.ignite(this.world.index(x, y))) {
       result.tilesIgnited = 1;
     }
     return result;
@@ -332,7 +382,7 @@ export class Simulation {
   /**
    * La pluie tombe pendant `dt` secondes sur les tuiles à RAIN_RADIUS de (x, y) :
    * elle éteint le feu et mouille la terre (qui ne peut plus brûler pendant un mois),
-   * fait repousser l'herbe sur la terre brûlée, et nourrit la terre.
+   * fait repousser l'herbe sur la terre brûlée, et nourrit la terre. Elle brise la sécheresse.
    * Comme les pinceaux, elle suit le temps réel : on l'appelle à chaque image tant que le clic est maintenu.
    */
   rain(x: number, y: number, dt: number): PowerResult {
@@ -340,24 +390,9 @@ export class Simulation {
     // La pluie ne tue personne
     result.mostAffectedVillage = this.peopleAround(x, y, RAIN_RADIUS, () => 0).mostAffectedVillage;
 
-    const fire = this.fire;
     // Au moins un pas par image, sinon une image très courte ne ferait rien du tout
     const regrowth = Math.max(1, Math.round(RAIN_REGROWTH * dt));
-    this.forEachTileAround(x, y, RAIN_RADIUS, (i) => {
-      // Mouillée, la tuile ne pourra pas reprendre feu tout de suite
-      fire.soak(i);
-      if (fire.burning[i] > 0) {
-        fire.extinguish(i);
-        result.tilesExtinguished++;
-      } else if (fire.scorched[i] > 0) {
-        // Rien ne pousse encore : la pluie raccourcit d'abord l'attente
-        fire.regrow(i, regrowth);
-      } else {
-        const before = this.food[i];
-        this.food[i] = Math.min(this.foodCapacity(i), before + RAIN_FOOD * dt);
-        result.foodGiven += this.food[i] - before;
-      }
-    });
+    this.water(x, y, RAIN_RADIUS, RAIN_FOOD * dt, regrowth, result);
     return result;
   }
 
@@ -452,6 +487,67 @@ export class Simulation {
     const rect = this.dirty;
     this.dirty = null;
     return rect;
+  }
+
+  /** Renvoie les tuiles frappées par la foudre des orages depuis le dernier appel (puis les oublie) */
+  takeStrikes(): Strike[] {
+    const strikes = this.strikes;
+    this.strikes = [];
+    return strikes;
+  }
+
+  /**
+   * Le ciel agit sur le monde : la pluie arrose sous les nuages de pluie, et la foudre des orages
+   * frappe comme celle de Zeus. La pluie d'abord : sous un orage qui pleut, la terre mouillée ne prend pas feu.
+   */
+  private applyWeather(): void {
+    for (const cloud of this.weather.clouds) {
+      if (isRaining(cloud)) {
+        const x = Math.floor(cloud.x);
+        const y = Math.floor(cloud.y);
+        this.water(x, y, rainRadius(cloud), SKY_RAIN_FOOD, SKY_RAIN_REGROWTH, noEffect());
+      }
+    }
+    for (const strike of this.weather.strikes) {
+      this.strikeLightning(strike.x, strike.y, strike.ignites);
+      this.strikes.push(strike);
+    }
+  }
+
+  /**
+   * La pluie tombe sur les tuiles à `radius` de (x, y) : elle éteint le feu et mouille la terre
+   * (qui ne peut plus brûler pendant un mois), rapproche de `regrowth` pas la fin de la terre brûlée,
+   * et ajoute `food` portions de nourriture aux autres tuiles. Ses effets s'ajoutent à `result`.
+   * Si elle tombe sur l'île, et pas seulement sur la mer, elle brise la sécheresse.
+   */
+  private water(
+    x: number,
+    y: number,
+    radius: number,
+    food: number,
+    regrowth: number,
+    result: PowerResult,
+  ): void {
+    const fire = this.fire;
+    const terrain = this.world.terrain;
+    let onLand = false;
+    this.forEachTileAround(x, y, radius, (i) => {
+      if (terrain[i] > Terrain.ShallowWater) onLand = true;
+      // Mouillée, la tuile ne pourra pas reprendre feu tout de suite
+      fire.soak(i);
+      if (fire.burning[i] > 0) {
+        fire.extinguish(i);
+        result.tilesExtinguished++;
+      } else if (fire.scorched[i] > 0) {
+        // Rien ne pousse encore : la pluie raccourcit d'abord l'attente
+        fire.regrow(i, regrowth);
+      } else {
+        const before = this.food[i];
+        this.food[i] = Math.min(this.foodCapacity(i), before + food);
+        result.foodGiven += this.food[i] - before;
+      }
+    });
+    if (onLand) this.weather.rainFell();
   }
 
   /**
@@ -733,17 +829,23 @@ export class Simulation {
   }
 
   /**
-   * La nourriture repousse doucement, sans dépasser ce que le terrain peut porter.
-   * Sur la terre brûlée, rien ne repousse tant qu'elle n'a pas récupéré.
+   * La nourriture repousse doucement, plus ou moins vite selon la saison,
+   * sans dépasser ce que le terrain peut porter.
+   * Sur la terre brûlée, rien ne repousse tant qu'elle n'a pas récupéré. Sous la neige non plus.
    */
   private growFood(): void {
+    // La sécheresse freine la repousse, d'autant plus que la terre est sèche
+    const drought = 1 - (1 - DROUGHT_FOOD_GROWTH) * this.weather.dryness;
+    const regrowth = FOOD_REGROWTH * SEASON_FOOD_GROWTH[seasonAt(this.elapsed)] * drought;
     const food = this.food;
     const terrain = this.world.terrain;
     const scorched = this.fire.scorched;
+    const elevation = this.world.elevation;
+    const snow = this.snowElevation;
     for (let i = 0; i < food.length; i++) {
-      if (scorched[i] > 0) continue;
+      if (scorched[i] > 0 || elevation[i] >= snow) continue;
       // Un pinceau a pu réduire la capacité (forêt défrichée, prairie inondée…)
-      food[i] = Math.min(FOOD_CAPACITY[terrain[i]], food[i] + FOOD_REGROWTH);
+      food[i] = Math.min(FOOD_CAPACITY[terrain[i]], food[i] + regrowth);
     }
   }
 

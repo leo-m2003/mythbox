@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { Terrain } from '../world/terrain';
+import { elevationAt } from '../world/terrain-rules';
 import { World } from '../world/world';
+import { TICKS_PER_SEASON } from './calendar';
 import { SCORCH_TICKS } from './fire';
-import { TICKS_PER_YEAR } from './sim-clock';
+import { TICKS_PER_MONTH, TICKS_PER_YEAR } from './sim-clock';
 import {
   ADULT_AGE,
   BIRTH_COOLDOWN,
   BIRTH_HUNGER,
   BLESSED_BIRTH_CHANCE,
+  DROUGHT_FOOD_GROWTH,
   FERTILE_UNTIL,
   FERTILITY_RADIUS,
   FIRE_RADIUS,
@@ -22,9 +25,11 @@ import {
   RAIN_FOOD,
   RAIN_RADIUS,
   Simulation,
+  SKY_RAIN_FOOD,
   STARVATION,
   WANDER_RADIUS,
 } from './simulation';
+import { SNOWFALL_TICKS, WINTER_SNOW_LINE, type Cloud, type Strike } from './weather';
 
 /** Un petit monde plat de prairie, traversé par une rivière verticale en x = 16 et 17 */
 function grassWorldWithRiver(): World {
@@ -37,6 +42,20 @@ function grassWorldWithRiver(): World {
   }
   world.refreshAllTerrain();
   return world;
+}
+
+/** Un petit monde plat de prairie, sans rivière */
+function grassWorld(): World {
+  const world = new World(32, 32, 0, 0.38);
+  world.elevation.fill(0.5);
+  world.moisture.fill(0.3);
+  world.refreshAllTerrain();
+  return world;
+}
+
+/** Un nuage formé (il peut pleuvoir et gronder) au-dessus de (x, y) */
+function formedCloud(x: number, y: number, rain: boolean, storm: boolean): Cloud {
+  return { x, y, radius: 5, stretch: 1, mirrored: false, rain, storm, age: 500, life: 1000 };
 }
 
 /** Une île de sable plat (aucune nourriture), avec éventuellement une tuile de prairie */
@@ -81,6 +100,18 @@ function runUntil(sim: Simulation, condition: () => boolean, max = 2000): number
     t++;
   }
   return t;
+}
+
+/**
+ * Un pas de simulation sur une île où il vient de pleuvoir, et dont l'hiver reste doux :
+ * jamais de sécheresse, et la neige ne descend pas jusqu'à la prairie.
+ * Les petits mondes des tests n'ont pas de nuages : sans pluie, la sécheresse viendrait dès l'été.
+ */
+function wetTick(sim: Simulation): void {
+  sim.weather.rainFell();
+  sim.tick();
+  // Un hiver rude se décide à son premier pas, avant que la neige tombe : on l'annule aussitôt
+  sim.weather.harshWinter = false;
 }
 
 /** Vrai si tous les habitants sont sur une tuile praticable */
@@ -226,15 +257,179 @@ describe('Simulation', () => {
     const tile = world.index(10, 5);
     sim.food[tile] = 0;
 
+    // 5 ans tout rond : les saisons rapides et lentes se compensent
     for (let t = 0; t < 1 / FOOD_REGROWTH; t++) {
-      sim.tick();
+      wetTick(sim);
     }
     expect(sim.food[tile]).toBeCloseTo(1, 3);
 
     for (let t = 0; t < 2 / FOOD_REGROWTH; t++) {
-      sim.tick();
+      wetTick(sim);
     }
     expect(sim.food[tile]).toBe(2);
+  });
+
+  it('fait repousser la nourriture plus vite au printemps, et presque pas l’hiver', () => {
+    const world = sandWorld(10, 5);
+    const sim = new Simulation(world, 1);
+    const tile = world.index(10, 5);
+    sim.food[tile] = 0;
+
+    // Ce qui repousse pendant chaque saison de la première année : printemps, été, automne, hiver
+    const gains: number[] = [];
+    for (let season = 0; season < 4; season++) {
+      const before = sim.food[tile];
+      for (let t = 0; t < TICKS_PER_SEASON; t++) wetTick(sim);
+      gains.push(sim.food[tile] - before);
+    }
+
+    const [spring, summer, autumn, winter] = gains;
+    expect(spring).toBeGreaterThan(summer);
+    expect(summer).toBeGreaterThan(autumn);
+    expect(autumn).toBeGreaterThan(winter);
+    expect(winter).toBeLessThan(spring / 5);
+    // Sur l'année, autant qu'avant les saisons (aux arrondis près : une année a beaucoup de pas)
+    expect(spring + summer + autumn + winter).toBeCloseTo(TICKS_PER_YEAR * FOOD_REGROWTH, 4);
+  });
+
+  it('fait repousser la nourriture 4 fois moins quand la sécheresse a desséché la terre', () => {
+    // Le même monde deux fois : sur l'un, il pleut sur l'île à chaque pas, sur l'autre jamais
+    const world = sandWorld(10, 5);
+    const wet = new Simulation(world, 1);
+    const dry = new Simulation(sandWorld(10, 5), 1);
+    const tile = world.index(10, 5);
+    // Le printemps, puis le premier mois de la sécheresse : la terre se dessèche
+    for (let t = 0; t < TICKS_PER_SEASON + TICKS_PER_MONTH; t++) {
+      wetTick(wet);
+      dry.tick();
+    }
+    expect(dry.weather.dryness).toBeCloseTo(1);
+
+    wet.food[tile] = 0;
+    dry.food[tile] = 0;
+    for (let t = 0; t < TICKS_PER_MONTH; t++) {
+      wetTick(wet);
+      dry.tick();
+    }
+    expect(wet.food[tile]).toBeGreaterThan(0);
+    expect(dry.food[tile]).toBeCloseTo(DROUGHT_FOOD_GROWTH * wet.food[tile], 5);
+  });
+
+  it('rien ne repousse sous la neige, et le feu n’y prend pas', () => {
+    // Une prairie plate, avec une tuile un peu plus haute : la neige de l'hiver la couvrira
+    const world = grassWorld();
+    const high = world.index(8, 8);
+    world.elevation[high] = elevationAt(WINTER_SNOW_LINE + 0.02, world.seaLevel);
+    world.refreshTerrain(high);
+    expect(world.terrain[high]).toBe(Terrain.Grass);
+    const low = world.index(20, 20);
+    const sim = new Simulation(world, 1);
+
+    // Jusqu'à l'hiver, le temps que la neige tombe (un hiver doux : elle reste sur les hauteurs)
+    for (let t = 0; t <= 3 * TICKS_PER_SEASON + SNOWFALL_TICKS; t++) wetTick(sim);
+    expect(sim.weather.snowLine).toBe(WINTER_SNOW_LINE);
+    sim.food[high] = 0;
+    sim.food[low] = 0;
+    for (let t = 0; t < TICKS_PER_MONTH; t++) wetTick(sim);
+    expect(sim.food[high]).toBe(0);
+    expect(sim.food[low]).toBeGreaterThan(0);
+
+    // Ni la foudre ni le pouvoir Incendie n'y allument de feu : seulement autour, plus bas
+    expect(sim.strikeLightning(8, 8).tilesIgnited).toBe(0);
+    expect(sim.igniteFire(8, 8).tilesIgnited).toBe(4);
+    expect(sim.fire.burning[high]).toBe(0);
+  });
+
+  it('compte les pas depuis le début du monde', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    expect(sim.ticks).toBe(0);
+    for (let t = 0; t < 25; t++) sim.tick();
+    expect(sim.ticks).toBe(25);
+  });
+
+  it('fait avancer la météo à chaque pas', () => {
+    const sim = new Simulation(grassWorldWithRiver(), 1);
+    // Un monde de 32 × 32 tuiles est trop petit pour avoir ses propres nuages : on en ajoute un
+    const cloud = { ...formedCloud(10, 10, false, false), age: 0 };
+    sim.weather.clouds.push(cloud);
+    sim.tick();
+    expect(cloud.x).toBeCloseTo(10 + sim.weather.windX, 5);
+    expect(cloud.age).toBe(1);
+  });
+
+  it('arrose la terre sous les nuages de pluie, pas sous les autres', () => {
+    const world = grassWorld();
+    const sim = new Simulation(world, 1);
+    // Un monde de 32 × 32 tuiles est trop petit pour avoir ses propres nuages : on en ajoute
+    sim.weather.clouds.push(
+      formedCloud(8.5, 8.5, true, false),
+      formedCloud(24.5, 24.5, false, false),
+    );
+    const under = world.index(8, 8);
+    sim.food[under] = 0;
+    const burning = world.index(9, 8);
+    sim.fire.ignite(burning);
+    sim.tick();
+    // Comme la pluie du dieu : le feu s'éteint, la terre est mouillée et nourrie
+    expect(sim.fire.burning[burning]).toBe(0);
+    expect(sim.fire.wet[under]).toBeGreaterThan(0);
+    expect(sim.food[under]).toBeGreaterThanOrEqual(SKY_RAIN_FOOD);
+    // Sous le nuage de beau temps, rien
+    expect(sim.fire.wet[world.index(24, 24)]).toBe(0);
+  });
+
+  it('fait tomber la foudre des orages sur le monde', () => {
+    const world = grassWorld();
+    const sim = new Simulation(world, 1);
+    sim.weather.clouds.push(formedCloud(16.5, 16.5, false, true));
+    let strikes: Strike[] = [];
+    runUntil(sim, () => (strikes = sim.takeStrikes()).length > 0, 300);
+    expect(strikes.length).toBeGreaterThan(0);
+    // Comme la foudre de Zeus : la nourriture brûle, et la prairie prend feu si le tirage le dit
+    const { x, y, ignites } = strikes[0];
+    expect(sim.food[world.index(x, y)]).toBeLessThan(0.01);
+    expect(sim.fire.burning[world.index(x, y)] > 0).toBe(ignites);
+    // Une fois pris, les coups de foudre sont oubliés
+    expect(sim.takeStrikes()).toEqual([]);
+  });
+
+  it('tourne à la sécheresse sans pluie sur l’île, et la pluie du dieu sur l’île la brise', () => {
+    const sim = new Simulation(smallIsland(), 1);
+    // Un si petit monde n'a pas ses propres nuages : tout le printemps sans pluie
+    for (let t = 0; t < TICKS_PER_SEASON; t++) sim.tick();
+    expect(sim.weather.drought).toBe(false);
+    // Le premier jour de l'été, c'est la sécheresse
+    sim.tick();
+    expect(sim.weather.drought).toBe(true);
+    // La pluie sur la mer ne la brise pas…
+    sim.rain(0, 0, 0.1);
+    expect(sim.weather.drought).toBe(true);
+    // … la pluie sur l'île, si
+    sim.rain(5, 5, 0.1);
+    expect(sim.weather.drought).toBe(false);
+  });
+
+  it('un nuage de pluie au-dessus de l’île brise la sécheresse, pas au-dessus de la mer', () => {
+    const sim = new Simulation(smallIsland(), 1);
+    for (let t = 0; t <= TICKS_PER_SEASON; t++) sim.tick();
+    expect(sim.weather.drought).toBe(true);
+    sim.weather.clouds.push(formedCloud(0.5, 0.5, true, false));
+    sim.tick();
+    expect(sim.weather.drought).toBe(true);
+    sim.weather.clouds.push(formedCloud(5.5, 5.5, true, false));
+    sim.tick();
+    expect(sim.weather.drought).toBe(false);
+  });
+
+  it('n’allume pas de feu sous un orage qui pleut', () => {
+    const world = grassWorld();
+    const sim = new Simulation(world, 1);
+    sim.weather.clouds.push(formedCloud(16.5, 16.5, true, true));
+    let strikes: Strike[] = [];
+    runUntil(sim, () => (strikes = sim.takeStrikes()).length > 0, 300);
+    expect(strikes.length).toBeGreaterThan(0);
+    // La pluie a mouillé la terre avant que la foudre tombe
+    expect(sim.fire.count).toBe(0);
   });
 
   it('fait apparaître un groupe d’adultes de 16 à 30 ans', () => {
@@ -267,10 +462,13 @@ describe('Simulation', () => {
     addAdult(sim, 5, 5);
     addAdult(sim, 6, 5);
 
-    // Chacun a 1 chance sur 1 200 par pas, et l'autre doit être tout près à ce moment-là :
-    // on laisse jusqu'à 20 000 pas (moins de 17 ans, ils restent en âge d'avoir des enfants)
+    // Chacun a 1 chance sur 3 600 par pas, et l'autre doit être tout près à ce moment-là :
+    // on laisse jusqu'à 20 000 pas (moins de 6 ans, ils restent en âge d'avoir des enfants)
     let t = 0;
     while (sim.people.count === 2 && t < 20_000) {
+      // Toujours rassasiés : sinon, le parent pourrait avoir assez faim pour manger juste après
+      sim.people.hunger[0] = 0;
+      sim.people.hunger[1] = 0;
       sim.tick();
       t++;
     }
@@ -403,8 +601,8 @@ describe('Simulation', () => {
       sim.people.village[i] = v;
       sim.villages.join(v);
     }
-
-    runUntil(sim, () => sim.people.count === 3);
+    // Comme pour le premier enfant : jusqu'à 20 000 pas, ils restent en âge d'avoir des enfants
+    runUntil(sim, () => sim.people.count === 3, 20_000);
 
     expect(sim.people.count).toBe(3);
     expect(sim.people.village[2]).toBe(v);
@@ -510,6 +708,18 @@ describe('Simulation', () => {
     const beach = new Simulation(sandWorld(), 1);
     expect(beach.strikeLightning(5, 5).tilesIgnited).toBe(0);
     expect(beach.fire.count).toBe(0);
+  });
+
+  it('peut frapper sans allumer de feu', () => {
+    const world = grassWorldWithRiver();
+    const sim = new Simulation(world, 1);
+    addAdult(sim, 5, 5);
+    const result = sim.strikeLightning(5, 5, false);
+    // Le mortel meurt et la nourriture brûle, mais la prairie ne prend pas feu
+    expect(result.victims).toBe(1);
+    expect(sim.food[world.index(5, 5)]).toBe(0);
+    expect(result.tilesIgnited).toBe(0);
+    expect(sim.fire.count).toBe(0);
   });
 
   it('le pouvoir Incendie embrase la tuile visée et ses 4 voisines, sauf l’eau', () => {
@@ -712,7 +922,7 @@ describe('Simulation', () => {
     expect(a.elevation).toEqual(b.elevation);
   });
 
-    it('la fertilité remplit la nourriture dans son rayon, et pas au-delà', () => {
+  it('la fertilité remplit la nourriture dans son rayon, et pas au-delà', () => {
     const world = grassWorldWithRiver();
     const sim = new Simulation(world, 1);
     expect(FERTILITY_RADIUS).toBe(5);

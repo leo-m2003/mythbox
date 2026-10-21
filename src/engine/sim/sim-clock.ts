@@ -1,13 +1,16 @@
 /** Nombre de pas de simulation par seconde, à la vitesse x1 */
 export const TICKS_PER_SECOND = 10;
 
-/** Nombre de pas de simulation dans une journée du jeu (une journée = 1 s à x1) */
-export const TICKS_PER_DAY = 10;
+/**
+ * Nombre de pas de simulation dans une journée du jeu (une journée = 3 s à x1).
+ * C'est elle qui règle la durée de tout le calendrier : les saisons, mais aussi la vie des mortels.
+ */
+export const TICKS_PER_DAY = 30;
 
-/** Nombre de jours dans un mois du jeu (un mois = 10 s à x1) */
+/** Nombre de jours dans un mois du jeu (un mois = 30 s à x1) */
 export const DAYS_PER_MONTH = 10;
 
-/** Nombre de mois dans une année du jeu (une année = 2 minutes à x1) */
+/** Nombre de mois dans une année du jeu (une année = 6 minutes à x1, une saison = 1 min 30) */
 export const MONTHS_PER_YEAR = 12;
 
 /** Nombre de pas de simulation dans un mois */
@@ -30,11 +33,11 @@ export const MAX_TICKS_PER_ADVANCE = 5;
 /**
  * Horloge de la simulation, à pas fixe.
  * Le rendu suit le rythme de l'écran (dt variable), mais la simulation avance
- * toujours par pas identiques : son résultat ne dépend pas de la machine.
+  * toujours par pas identiques : son résultat ne dépend pas de la machine.
+ * L'horloge dit seulement combien de pas jouer : c'est la simulation qui les compte (`Simulation.ticks`).
  */
 export class SimClock {
   private currentSpeed: SimSpeed = 1;
-  private elapsedTicks = 0;
   /** Fraction de pas en attente (entre 0 et 1) */
   private pending = 0;
 
@@ -42,18 +45,12 @@ export class SimClock {
     return this.currentSpeed;
   }
 
-  /** Nombre de pas joués depuis le début du monde */
-  get tick(): number {
-    return this.elapsedTicks;
-  }
-
   setSpeed(speed: SimSpeed): void {
     this.currentSpeed = speed;
   }
 
-  /** Remet l'horloge à zéro (nouveau monde), sans changer la vitesse */
+  /** Oublie la fraction de pas en attente (nouveau monde), sans changer la vitesse */
   reset(): void {
-    this.elapsedTicks = 0;
     this.pending = 0;
   }
 
@@ -74,7 +71,6 @@ export class SimClock {
       this.pending = 0;
     }
 
-    this.elapsedTicks += ticks;
     return ticks;
   }
 }

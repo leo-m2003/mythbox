@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { SEASON_NAMES } from '@engine/sim/calendar';
 import { SIM_SPEEDS, type SimSpeed } from '@engine/sim/sim-clock';
 import { GameService } from '../services/game-service';
 import { isTyping } from '../shared/is-typing';
@@ -14,6 +15,7 @@ import { isTyping } from '../shared/is-typing';
 })
 export class TimeBar {
   protected readonly game = inject(GameService);
+  protected readonly seasonNames = SEASON_NAMES;
   /** Les vitesses hors pause : x1, x2, x5, x10 */
   protected readonly speeds = SIM_SPEEDS.filter((s): s is Exclude<SimSpeed, 0> => s !== 0);
 
