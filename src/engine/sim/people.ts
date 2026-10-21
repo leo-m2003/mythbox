@@ -21,8 +21,8 @@ export class People {
   /** Faim, en pas de simulation depuis le dernier repas complet (0 = rassasié) */
   readonly hunger = new Uint16Array(MAX_PEOPLE);
   /**
-   * Âge, en pas de simulation (1 200 pas = 1 an).
-   * Uint32 : un Uint16 s'arrête à 65 535 pas, soit à peine 54 ans.
+   * Âge, en pas de simulation (3 600 pas = 1 an).
+   * Uint32 : un Uint16 s'arrête à 65 535 pas, soit à peine 18 ans.
    */
   readonly age = new Uint32Array(MAX_PEOPLE);
   /** Âge auquel il mourra de vieillesse, en pas */

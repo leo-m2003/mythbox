@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { Engine, MAX_BRUSH_RADIUS, MIN_BRUSH_RADIUS, type WorldSummary } from '@engine/engine';
+import type { FrameStats } from '@engine/frame-meter';
 import { Season } from '@engine/sim/calendar';
 import type { SimSpeed } from '@engine/sim/sim-clock';
 import { HAND, type Tool } from '@engine/tool';
@@ -59,6 +60,15 @@ export class GameService {
   private readonly harshWinterState = signal(false);
   /** Vrai pendant un hiver rude */
   readonly harshWinter = this.harshWinterState.asReadonly();
+
+  private readonly frameState = signal<FrameStats>({
+    fps: 0,
+    simulationMs: 0,
+    worstSimulationMs: 0,
+    drawMs: 0,
+  });
+  /** Ce que mesure le banc d'essai : images par seconde, temps de simulation et de dessin */
+  readonly frame = this.frameState.asReadonly();
 
   /** Vitesse à retrouver en sortant de la pause */
   private resumeSpeed: Exclude<SimSpeed, 0> = 1;
@@ -132,5 +142,6 @@ export class GameService {
     this.villagesState.set(summary.villages);
     this.droughtState.set(summary.drought);
     this.harshWinterState.set(summary.harshWinter);
+    this.frameState.set(summary.frame);
   }
 }

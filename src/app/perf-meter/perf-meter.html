@@ -1,0 +1,17 @@
+@if (visible()) {
+  <dl
+    class="panel"
+    aria-label="Banc d'essai"
+    title="Moyennes du dernier quart de seconde. ² pour cacher"
+  >
+    <dt>Images par seconde</dt>
+    <dd>{{ format(game.frame().fps, 0) }}</dd>
+    <dt>Simulation</dt>
+    <dd>
+      {{ format(game.frame().simulationMs, 1) }} ms
+      <span class="worst">(pire {{ format(game.frame().worstSimulationMs, 1) }})</span>
+    </dd>
+    <dt>Dessin</dt>
+    <dd>{{ format(game.frame().drawMs, 1) }} ms</dd>
+  </dl>
+}

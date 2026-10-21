@@ -1,0 +1,42 @@
+:host {
+  position: absolute;
+  top: 76px;
+  left: 12px;
+  // Laisse passer les clics vers la carte
+  pointer-events: none;
+  font-family: system-ui, sans-serif;
+  color: #f3ead7;
+}
+
+.panel {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  background: rgba(10, 20, 38, 0.82);
+  border: 1px solid rgba(214, 178, 94, 0.35);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+}
+
+dt {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+}
+
+dd {
+  margin: 0;
+  font-weight: 600;
+  color: #e2bf6a;
+  font-variant-numeric: tabular-nums;
+}
+
+// Le pire temps de simulation : la valeur à surveiller, mais en plus discret
+.worst {
+  font-weight: 400;
+  color: #f3ead7;
+  opacity: 0.75;
+}

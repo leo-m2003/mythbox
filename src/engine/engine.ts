@@ -1,4 +1,5 @@
 import { Random } from './core/random';
+import { FrameMeter, type FrameStats } from './frame-meter';
 import { PointerInput } from './input/pointer-input';
 import { Camera, type Point } from './render/camera';
 import { drawCloudShadows, drawWeatherClouds } from './render/cloud-renderer';
@@ -51,6 +52,8 @@ export interface WorldSummary extends GameDate {
   drought: boolean;
   /** Vrai pendant un hiver rude */
   harshWinter: boolean;
+  /** Ce que mesure le banc d'essai depuis le résumé précédent */
+  frame: FrameStats;
 }
 
 /**
@@ -75,6 +78,10 @@ export class Engine {
 
   private readonly clock = new SimClock();
   private summaryTimer = 0;
+  /** Le banc d'essai : ce que prend chaque image */
+  private readonly meter = new FrameMeter();
+  /** Temps passé dans la simulation pendant l'image en cours, en millisecondes */
+  private simulationMs = 0;
 
   /** Appelé quelques fois par seconde avec le résumé du monde */
   onSummary?: (summary: WorldSummary) => void;
@@ -114,7 +121,7 @@ export class Engine {
     this.clock.setSpeed(speed);
   }
 
-  /** Résumé du monde à l'instant présent */
+  /** Résumé du monde à l'instant présent, et mesures du banc d'essai depuis le dernier résumé */
   summary(): WorldSummary {
     return {
       // La date vient de la simulation : c'est elle qui compte les pas
@@ -123,6 +130,7 @@ export class Engine {
       villages: this.simulation.villages.count,
       drought: this.simulation.weather.drought,
       harshWinter: this.simulation.weather.harshWinter,
+      frame: this.meter.take(),
     };
   }
 
@@ -159,13 +167,15 @@ export class Engine {
     if (this.frameId) return;
     const loop = (time: number) => {
       // Temps écoulé depuis l'image précédente, en secondes
-      const dt = this.lastFrameTime
-        ? Math.min(MAX_FRAME_TIME, (time - this.lastFrameTime) / 1000)
-        : 0;
+      const elapsed = this.lastFrameTime ? (time - this.lastFrameTime) / 1000 : 0;
       this.lastFrameTime = time;
 
-      this.update(dt);
+      const start = performance.now();
+      this.update(Math.min(MAX_FRAME_TIME, elapsed));
       this.render();
+      // Le banc d'essai : update() a mesuré la simulation, le reste est surtout le dessin
+      const total = performance.now() - start;
+      this.meter.add(elapsed, this.simulationMs, total - this.simulationMs);
       this.frameId = requestAnimationFrame(loop);
     };
     this.frameId = requestAnimationFrame(loop);
@@ -202,9 +212,11 @@ export class Engine {
     this.effects.update(dt);
 
     const ticks = this.clock.advance(dt);
+    const simulationStart = performance.now();
     for (let i = 0; i < ticks; i++) {
       this.simulateTick();
     }
+    this.simulationMs = performance.now() - simulationStart;
     // Des forêts ont brûlé, ou un séisme a bouleversé le relief : on redessine seulement la zone touchée
     const changed = this.simulation.takeDirtyRect();
     if (changed) {
